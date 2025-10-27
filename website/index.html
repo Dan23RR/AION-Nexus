@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AION NEXUS - Physics-Validated AI for Predictive Maintenance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary: #1e3a8a;
+            --primary-light: #3b82f6;
+            --accent: #10b981;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --gray: #64748b;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--dark);
+            scroll-behavior: smooth;
+        }
+        
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            z-index: 1000;
+            padding: 1rem 0;
+        }
+        
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        
+        nav ul {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+        }
+        
+        nav a {
+            text-decoration: none;
+            color: var(--dark);
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        
+        nav a:hover {
+            color: var(--primary-light);
+        }
+        
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+        
+        /* Hero Section */
+        .hero {
+            padding: 8rem 0 4rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23ffffff" fill-opacity="0.1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,133.3C960,128,1056,96,1152,90.7C1248,85,1344,107,1392,117.3L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>') no-repeat bottom;
+            background-size: cover;
+        }
+        
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+            animation: fadeInUp 0.8s ease;
+        }
+        
+        .hero p {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            opacity: 0.95;
+            animation: fadeInUp 0.8s ease 0.2s backwards;
+        }
+        
+        .badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            margin-right: 1rem;
+            margin-bottom: 1rem;
+            animation: fadeInUp 0.8s ease 0.4s backwards;
+        }
+        
+        /* Metrics Grid */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+        
+        .metric-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 1.5rem;
+            border-radius: 15px;
+            text-align: center;
+            animation: fadeInUp 0.8s ease 0.6s backwards;
+        }
+        
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .metric-label {
+            font-size: 0.875rem;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* Sections */
+        section {
+            padding: 5rem 0;
+        }
+        
+        section:nth-child(even) {
+            background: var(--light);
+        }
+        
+        h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+        }
+        
+        .section-subtitle {
+            color: var(--gray);
+            font-size: 1.125rem;
+            margin-bottom: 3rem;
+        }
+        
+        /* Features Grid */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+        
+        .feature-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            color: white;
+        }
+        
+        .feature-card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            color: var(--dark);
+        }
+        
+        .feature-card p {
+            color: var(--gray);
+            line-height: 1.8;
+        }
+        
+        /* Performance Table */
+        .performance-table {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+            margin: 2rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: var(--primary);
+            color: white;
+            padding: 1.25rem;
+            text-align: left;
+        }
+        
+        td {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tr:hover {
+            background: var(--light);
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        
+        .status-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        /* ROI Section */
+        .roi-calculator {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3rem;
+            border-radius: 20px;
+            margin: 3rem 0;
+        }
+        
+        .roi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .roi-item {
+            text-align: center;
+        }
+        
+        .roi-value {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .roi-label {
+            opacity: 0.9;
+        }
+        
+        /* CTA Section */
+        .cta {
+            background: var(--dark);
+            color: white;
+            text-align: center;
+            padding: 5rem 0;
+        }
+        
+        .cta h2 {
+            color: white;
+            margin-bottom: 1rem;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 1rem 2.5rem;
+            background: var(--accent);
+            color: white;
+            text-decoration: none;
+            border-radius: 30px;
+            font-weight: 600;
+            transition: transform 0.3s, box-shadow 0.3s;
+            margin: 0.5rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 2px solid white;
+        }
+        
+        .btn-outline:hover {
+            background: white;
+            color: var(--dark);
+        }
+        
+        /* Contact Section */
+        .contact-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+        
+        .contact-item {
+            text-align: center;
+        }
+        
+        .contact-icon {
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--dark);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+            
+            nav ul {
+                display: none;
+            }
+            
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="container">
+            <div class="logo">AION NEXUS</div>
+            <ul>
+                <li><a href="#solution">Solution</a></li>
+                <li><a href="#performance">Performance</a></li>
+                <li><a href="#roi">ROI</a></li>
+                <li><a href="#contact">Contact</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container hero-content">
+            <h1>Physics-Validated AI for Predictive Maintenance</h1>
+            <p>Trust through transparency: Every AI prediction explained with real physics</p>
+            <div>
+                <span class="badge">93.4% Accuracy</span>
+                <span class="badge">8% False Alarms</span>
+                <span class="badge">14.8ms Real-time</span>
+            </div>
+            
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-value">93.4%</div>
+                    <div class="metric-label">F1-Score</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">77%</div>
+                    <div class="metric-label">False Alarm Reduction</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">14.8ms</div>
+                    <div class="metric-label">Inference Speed</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">84.8%</div>
+                    <div class="metric-label">Physics Validation</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Solution Section -->
+    <section id="solution">
+        <div class="container">
+            <h2>The Problem We Solve</h2>
+            <p class="section-subtitle">Industrial AI fails because operators don't trust black-box predictions</p>
+            
+            <div class="features">
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Explainable Predictions</h3>
+                    <p>Every diagnosis shows exact fault frequencies detected (BPFO, BPFI, BSF) with harmonic analysis, giving operators physics-based confidence.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Real-time Processing</h3>
+                    <p>14.8ms inference enables real-time monitoring of critical assets without delays, processing 67 samples per second continuously.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Reduced False Alarms</h3>
+                    <p>From 35% industry average to just 8% false positives through physics validation, saving thousands in unnecessary inspections.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Section -->
+    <section id="performance">
+        <div class="container">
+            <h2>Proven Performance</h2>
+            <p class="section-subtitle">Validated on IEEE PHM Challenge dataset (1,507 industrial samples)</p>
+            
+            <div class="performance-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Value</th>
+                            <th>Industry Standard</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Test F1-Score</td>
+                            <td><strong>93.4%</strong></td>
+                            <td>90%</td>
+                            <td><span class="status-badge status-success">✓ Exceeds</span></td>
+                        </tr>
+                        <tr>
+                            <td>Inference Speed</td>
+                            <td><strong>14.8 ms</strong></td>
+                            <td>50 ms</td>
+                            <td><span class="status-badge status-success">✓ 3x Faster</span></td>
+                        </tr>
+                        <tr>
+                            <td>SNR +5dB Robustness</td>
+                            <td><strong>89.1%</strong></td>
+                            <td>65%</td>
+                            <td><span class="status-badge status-success">✓ Superior</span></td>
+                        </tr>
+                        <tr>
+                            <td>Physics Agreement</td>
+                            <td><strong>84.8%</strong></td>
+                            <td>N/A</td>
+                            <td><span class="status-badge status-success">✓ Unique</span></td>
+                        </tr>
+                        <tr>
+                            <td>False Alarm Rate</td>
+                            <td><strong>8%</strong></td>
+                            <td>30-35%</td>
+                            <td><span class="status-badge status-success">✓ 77% Better</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <h3 style="margin-top: 3rem;">Three-Layer Intelligence</h3>
+            <div class="features">
+                <div class="feature-card">
+                    <div class="feature-icon">1</div>
+                    <h3>Deep Ensemble AI</h3>
+                    <p>Three specialized neural networks vote on each prediction, providing uncertainty quantification and robust fault detection even in noisy conditions.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">2</div>
+                    <h3>Physics Validator</h3>
+                    <p>Harmonic search algorithm verifies AI predictions against physical bearing kinematics, detecting 1x-5x harmonics and sidebands.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">3</div>
+                    <h3>Context Integration</h3>
+                    <p>Operational data (load, temperature, maintenance history) provides critical context, catching failures that pure vibration analysis misses.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ROI Section -->
+    <section id="roi">
+        <div class="container">
+            <h2>Return on Investment</h2>
+            <p class="section-subtitle">Conservative calculations based on validated performance</p>
+            
+            <div class="roi-calculator">
+                <h3 style="margin-bottom: 1rem;">Typical 50-Bearing Plant</h3>
+                <div class="roi-grid">
+                    <div class="roi-item">
+                        <div class="roi-value">€95K</div>
+                        <div class="roi-label">Annual Savings</div>
+                    </div>
+                    <div class="roi-item">
+                        <div class="roi-value">158%</div>
+                        <div class="roi-label">ROI Year 1</div>
+                    </div>
+                    <div class="roi-item">
+                        <div class="roi-value">7.6</div>
+                        <div class="roi-label">Months Payback</div>
+                    </div>
+                    <div class="roi-item">
+                        <div class="roi-value">€435K</div>
+                        <div class="roi-label">5-Year Value</div>
+                    </div>
+                </div>
+            </div>
+            
+            <h3>Savings Breakdown</h3>
+            <div class="features">
+                <div class="feature-card">
+                    <h3>€31K/year</h3>
+                    <p>False alarm reduction (77% fewer unnecessary inspections)</p>
+                </div>
+                <div class="feature-card">
+                    <h3>€13K/year</h3>
+                    <p>Prevented failures (40% detection improvement)</p>
+                </div>
+                <div class="feature-card">
+                    <h3>€51K/year</h3>
+                    <p>Labor savings (70% autonomous operation)</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Reduce Downtime by 40%?</h2>
+            <p style="margin-bottom: 2rem;">Join leading manufacturers using physics-validated AI</p>
+            <a href="#contact" class="btn">Schedule Demo</a>
+            <a href="#" onclick="downloadPDF()" class="btn btn-outline">Download Executive Summary</a>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact">
+        <div class="container">
+            <h2>Get in Touch</h2>
+            <p class="section-subtitle">Let's discuss how AION NEXUS can transform your predictive maintenance</p>
+            
+            <div class="contact-info">
+                <div class="contact-item">
+                    <div class="contact-icon">📧</div>
+                    <h3>Email</h3>
+                    <p><a href="mailto:daniel.culotta@gmail.com" style="color: var(--primary); text-decoration: none;">daniel.culotta@gmail.com</a></p>
+                </div>
+                <div class="contact-item">
+                    <div class="contact-icon">📱</div>
+                    <h3>Phone</h3>
+                    <p><a href="tel:+393932707135" style="color: var(--primary); text-decoration: none;">+39 393 2707 135</a></p>
+                </div>
+                <div class="contact-item">
+                    <div class="contact-icon">🏢</div>
+                    <h3>Location</h3>
+                    <p>Milan, Italy<br>Available for EU projects</p>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 3rem;">
+                <h3>Q1 2025 Pilot Program</h3>
+                <p style="color: var(--gray); margin: 1rem 0;">We're selecting 3 industrial partners for free pilots.<br>Zero cost, full support, proven ROI.</p>
+                <a href="mailto:daniel.culotta@gmail.com?subject=AION%20NEXUS%20Pilot%20Interest" class="btn">Apply for Pilot</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 AION NEXUS. Physics-Validated AI for Industry 4.0</p>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Download PDF function
+        function downloadPDF() {
+            // In production, this would link to your actual PDF
+            alert('Executive Summary PDF will be sent to your email. Please contact daniel.culotta@gmail.com');
+            // Alternative: window.open('/path/to/executive_summary.pdf', '_blank');
+        }
+
+        // Add scroll effect to navigation
+        window.addEventListener('scroll', function() {
+            const nav = document.querySelector('nav');
+            if (window.scrollY > 50) {
+                nav.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
+            } else {
+                nav.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+            }
+        });
+
+        // Animate metrics on scroll
+        const observerOptions = {
+            threshold: 0.5,
+            rootMargin: '0px 0px -100px 0px'
+        };
+
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.animation = 'fadeInUp 0.8s ease forwards';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.feature-card, .metric-card').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>
