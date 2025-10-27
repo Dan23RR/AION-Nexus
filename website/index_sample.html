@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AION NEXUS v6.5 - AI-Powered Predictive Maintenance Platform combining operational context, physics validation, and advanced AI">
+    <meta name="keywords" content="predictive maintenance, AI, bearing diagnostics, Industry 4.0, AION NEXUS">
+    <meta name="author" content="Daniel Culotta">
+
+    <title>AION NEXUS v6.5 - Predictive Maintenance Platform</title>
+
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #1e40af;
+            --accent-color: #10b981;
+            --text-dark: #1f2937;
+            --text-light: #6b7280;
+            --bg-light: #f9fafb;
+            --bg-white: #ffffff;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-dark);
+            background-color: var(--bg-white);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 2rem 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            transition: opacity 0.3s;
+        }
+
+        .nav-links a:hover {
+            opacity: 0.8;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 4rem 0;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: white;
+        }
+
+        .hero p {
+            font-size: 1.3rem;
+            margin-bottom: 2rem;
+            opacity: 0.95;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #0ea472;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background-color: rgba(255,255,255,0.2);
+            color: white;
+            border: 2px solid white;
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(255,255,255,0.3);
+        }
+
+        /* Features Section */
+        .features {
+            padding: 5rem 0;
+            background-color: var(--bg-light);
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 3rem;
+            color: var(--text-dark);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-title {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+        }
+
+        /* Performance Section */
+        .performance {
+            padding: 5rem 0;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .metric {
+            text-align: center;
+            padding: 2rem;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            border-radius: 10px;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-label {
+            font-size: 1.1rem;
+            opacity: 0.95;
+        }
+
+        /* ROI Section */
+        .roi-section {
+            padding: 5rem 0;
+            background-color: var(--bg-light);
+        }
+
+        .roi-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            align-items: center;
+        }
+
+        .roi-text h3 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+        }
+
+        .roi-list {
+            list-style: none;
+            margin-top: 1.5rem;
+        }
+
+        .roi-list li {
+            padding: 0.5rem 0;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .roi-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--accent-color);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .roi-calculator {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        /* Contact Section */
+        .contact {
+            padding: 5rem 0;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            text-align: center;
+        }
+
+        .contact h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .contact-info {
+            margin-top: 2rem;
+            font-size: 1.2rem;
+        }
+
+        .contact-info a {
+            color: white;
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+            transition: border-color 0.3s;
+        }
+
+        .contact-info a:hover {
+            border-bottom-color: white;
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--text-dark);
+            color: white;
+            text-align: center;
+            padding: 2rem 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .roi-content {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-links {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="container">
+            <nav>
+                <div class="logo">AION NEXUS v6.5</div>
+                <ul class="nav-links">
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#performance">Performance</a></li>
+                    <li><a href="#roi">ROI</a></li>
+                    <li><a href="#contact">Contact</a></li>
+                    <li><a href="https://github.com/aion-nexus/aion-nexus" target="_blank">GitHub</a></li>
+                </ul>
+            </nav>
+
+            <div class="hero">
+                <h1>Predictive Maintenance Reimagined</h1>
+                <p>Combining Operational Context, Physics Validation, and AI for 93.4% Accuracy</p>
+                <div class="cta-buttons">
+                    <a href="docs/business/Executive_Summary.md" class="btn btn-primary">View Executive Summary</a>
+                    <a href="#contact" class="btn btn-secondary">Join Pilot Program</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2 class="section-title">Integrated Three-Layer Architecture</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3 class="feature-title">Operational Context</h3>
+                    <p>Monitors load, temperature, and lubrication schedules to catch 40% more failures than vibration-only systems.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚙️</div>
+                    <h3 class="feature-title">Physics Validation</h3>
+                    <p>Harmonic Search Algorithm provides explainable diagnostics with 75.3% fault agreement rate.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3 class="feature-title">AI Prediction</h3>
+                    <p>Temporal Self-Attention architecture achieves 93.4% F1-score with 14.8ms real-time inference.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Section -->
+    <section id="performance" class="performance">
+        <div class="container">
+            <h2 class="section-title">Proven Performance</h2>
+            <div class="metrics-grid">
+                <div class="metric">
+                    <div class="metric-value">93.4%</div>
+                    <div class="metric-label">F1-Score Accuracy</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">89.1%</div>
+                    <div class="metric-label">Noise Robustness</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">14.8ms</div>
+                    <div class="metric-label">Inference Speed</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value">30%</div>
+                    <div class="metric-label">False Alarm Reduction</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ROI Section -->
+    <section id="roi" class="roi-section">
+        <div class="container">
+            <h2 class="section-title">Business Value</h2>
+            <div class="roi-content">
+                <div class="roi-text">
+                    <h3>Real ROI, Not Fantasy</h3>
+                    <p>Based on conservative estimates and validated methodology:</p>
+                    <ul class="roi-list">
+                        <li>Prevent 1-2 additional failures per year</li>
+                        <li>Reduce false alarms by 30%</li>
+                        <li>67-83% annual ROI (Year 2+)</li>
+                        <li>15-18 month payback period</li>
+                        <li>EU AI Act compliant</li>
+                    </ul>
+                </div>
+                <div class="roi-calculator">
+                    <h3>Calculate Your Savings</h3>
+                    <p>For a facility with 10 critical bearings:</p>
+                    <table style="width: 100%; margin-top: 1rem;">
+                        <tr>
+                            <td>Investment:</td>
+                            <td style="text-align: right;"><strong>€60,000</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Annual Savings:</td>
+                            <td style="text-align: right;"><strong>€40-50K</strong></td>
+                        </tr>
+                        <tr>
+                            <td>5-Year NPV:</td>
+                            <td style="text-align: right;"><strong>€140-180K</strong></td>
+                        </tr>
+                    </table>
+                    <a href="docs/business/INVESTOR_ONE_PAGER.md" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">View Full Business Case</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="contact">
+        <div class="container">
+            <h2>Ready to Transform Your Maintenance?</h2>
+            <p>Join our pilot program with €0 upfront cost</p>
+            <div class="contact-info">
+                <p>📧 <a href="mailto:daniel.culotta@gmail.com">daniel.culotta@gmail.com</a></p>
+                <p>📱 +39 393 2707 135</p>
+                <p>🔗 <a href="https://linkedin.com/in/danielculotta" target="_blank">LinkedIn</a> |
+                   <a href="https://github.com/aion-nexus/aion-nexus" target="_blank">GitHub</a></p>
+            </div>
+            <div class="cta-buttons" style="margin-top: 2rem;">
+                <a href="mailto:daniel.culotta@gmail.com?subject=AION NEXUS Pilot Interest" class="btn btn-primary">Contact for Pilot</a>
+                <a href="docs/technical/ANALISI_TECNICA_COMPLETA.md" class="btn btn-secondary">Technical Deep Dive</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 AION NEXUS - Daniel Culotta. All rights reserved.</p>
+            <p>Made with ❤️ in Europe 🇪🇺</p>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Add animation on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '0';
+                    entry.target.style.transform = 'translateY(20px)';
+                    setTimeout(() => {
+                        entry.target.style.transition = 'all 0.6s ease';
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }, 100);
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, observerOptions);
+
+        // Observe all feature cards and metrics
+        document.querySelectorAll('.feature-card, .metric').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

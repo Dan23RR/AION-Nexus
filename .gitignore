@@ -1,0 +1,167 @@
+# AION NEXUS - GitHub Repository .gitignore
+# This repository contains ONLY documentation and website
+# All source code is EXCLUDED for IP protection
+
+# === EXCLUDE ALL SOURCE CODE ===
+*.py
+*.ipynb
+*.pyx
+*.pyd
+*.so
+*.c
+*.cpp
+*.h
+*.hpp
+*.cu
+*.cuh
+
+# === EXCLUDE TRAINED MODELS ===
+*.pth
+*.pt
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.tflite
+*.weights
+*.caffemodel
+checkpoint/
+checkpoints/
+models/
+trained_models/
+saved_models/
+
+# === EXCLUDE DATASETS ===
+*.csv
+*.parquet
+*.feather
+*.npy
+*.npz
+*.mat
+*.hdf
+data/
+datasets/
+raw_data/
+processed_data/
+
+# === EXCLUDE SENSITIVE DOCUMENTATION ===
+*_INTERNAL.md
+*_PROPRIETARY.md
+*_CONFIDENTIAL.md
+patents/
+ip/
+contracts/
+financial/
+
+# === EXCLUDE CONFIGURATION ===
+*.env
+*.ini
+config.json
+config.yaml
+settings.json
+credentials.json
+secrets/
+
+# === EXCLUDE BUILD ARTIFACTS ===
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# === EXCLUDE IDE FILES ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# === EXCLUDE LOGS ===
+*.log
+logs/
+*.out
+*.err
+
+# === EXCLUDE TEMPORARY FILES ===
+tmp/
+temp/
+cache/
+*.tmp
+*.bak
+*.backup
+
+# === EXCLUDE VIRTUAL ENVIRONMENTS ===
+venv/
+env/
+ENV/
+.venv/
+virtualenv/
+pipenv/
+
+# === EXCLUDE NODE MODULES (if using for website) ===
+node_modules/
+package-lock.json
+yarn.lock
+
+# === EXCLUDE DOCKER ===
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# === EXCLUDE RESULTS & OUTPUTS ===
+results/
+outputs/
+experiments/
+runs/
+wandb/
+mlruns/
+
+# === EXCLUDE JUPYTER CHECKPOINTS ===
+.ipynb_checkpoints/
+
+# === EXCLUDE CHALLENGE SUBMISSIONS ===
+Challenge/
+challenge_submissions/
+PHM_Challenge/
+
+# === EXCLUDE DEPLOYMENT SCRIPTS ===
+deploy/
+deployment/
+kubernetes/
+terraform/
+ansible/
+
+# === ALLOW SPECIFIC FILES ===
+# Documentation
+!docs/**/*.md
+!docs/**/*.pdf
+!docs/**/*.png
+!docs/**/*.jpg
+
+# Website
+!index.html
+!website/
+!assets/
+!css/
+!js/
+!images/
+
+# GitHub files
+!README.md
+!LICENSE
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!SECURITY.md
+!.github/
+
+# Business documents (public versions)
+!INVESTOR_ONE_PAGER.md
+!Executive_Summary.md
+!EMAIL_PRESENTAZIONE_PROGETTO.md

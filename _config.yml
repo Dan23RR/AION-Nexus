@@ -1,0 +1,56 @@
+# GitHub Pages Configuration for AION NEXUS
+
+# Site settings
+title: AION NEXUS v6.5
+description: AI-Powered Predictive Maintenance Platform - Combining Operational Context, Physics Validation, and Advanced AI
+author: Daniel Culotta
+email: daniel.culotta@gmail.com
+
+# Build settings
+theme: jekyll-theme-minimal
+markdown: kramdown
+
+# GitHub Pages
+baseurl: "" # the subpath of your site, e.g. /blog
+url: "https://aion-nexus.github.io" # the base hostname & protocol
+
+# Google Analytics (optional - add your tracking ID)
+# google_analytics: UA-XXXXXXXXX-X
+
+# Social Links
+github_username: aion-nexus
+linkedin_url: https://linkedin.com/in/danielculotta
+
+# Exclude from build
+exclude:
+  - README.md
+  - LICENSE
+  - CONTRIBUTING.md
+  - .gitignore
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .sass-cache
+  - .jekyll-cache
+  - node_modules
+
+# Include specific files
+include:
+  - index.html
+  - assets
+  - docs
+  - images
+
+# Plugins
+plugins:
+  - jekyll-sitemap
+  - jekyll-seo-tag
+
+# SEO settings
+tagline: Transforming Predictive Maintenance with Integrated Intelligence
+logo: /assets/aion-logo.png
+social:
+  name: Daniel Culotta
+  links:
+    - https://linkedin.com/in/danielculotta
+    - https://github.com/aion-nexus
