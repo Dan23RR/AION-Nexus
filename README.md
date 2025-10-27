@@ -8,7 +8,7 @@
 [![EU AI Act](https://img.shields.io/badge/EU%20AI%20Act-Compliant-green.svg)](docs/compliance/)
 
 <p align="center">
-  <img src="assets/aion-logo.png" alt="AION NEXUS Logo" width="400">
+  <img src="assets/logo/aion-logo.png" alt="AION NEXUS Logo" width="400">
 </p>
 
 ## 🚀 Overview

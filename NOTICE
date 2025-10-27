@@ -1,0 +1,109 @@
+AION NEXUS v6.5 - Predictive Maintenance Platform
+Copyright 2025 Daniel Culotta / SOLITONlab
+
+This product includes software and documentation developed at SOLITONlab.
+
+================================================================================
+NOTICE for Apache-Licensed Documentation
+================================================================================
+
+The documentation in this repository is licensed under the Apache License 2.0.
+This includes all markdown files, website content, and configuration files.
+
+================================================================================
+PROPRIETARY COMPONENTS NOTICE
+================================================================================
+
+The following components are PROPRIETARY and NOT included in this repository:
+- AION NEXUS v6 neural network architecture and implementation
+- Physics Validator v3 algorithm source code
+- Trained models and weights
+- Core prediction and inference engines
+- Performance optimization implementations
+
+For commercial licensing of proprietary components:
+Contact: daniel.culotta@gmail.com
+
+================================================================================
+THIRD-PARTY ACKNOWLEDGMENTS
+================================================================================
+
+This project's documentation references the following third-party technologies:
+
+1. PyTorch
+   Copyright (c) 2016-present, Facebook, Inc.
+   Licensed under BSD-style license
+   https://github.com/pytorch/pytorch
+
+2. NumPy
+   Copyright (c) 2005-2023, NumPy Developers
+   Licensed under BSD license
+   https://numpy.org/
+
+3. Pandas
+   Copyright (c) 2008-2011, AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team
+   Licensed under BSD license
+   https://pandas.pydata.org/
+
+4. Scikit-learn
+   Copyright (c) 2007-2023 The scikit-learn developers
+   Licensed under BSD license
+   https://scikit-learn.org/
+
+5. FEMTO Bearing Dataset
+   IEEE PHM 2012 Prognostic Challenge
+   FEMTO-ST Institute, France
+   Used for validation and benchmarking
+
+================================================================================
+ACADEMIC CITATIONS
+================================================================================
+
+When using this documentation or referring to AION NEXUS technology in academic work:
+
+@software{aion_nexus_2025,
+  author = {Culotta, Daniel},
+  title = {AION NEXUS v6.5: Integrated Predictive Maintenance Platform},
+  year = {2025},
+  publisher = {SOLITONlab},
+  url = {https://github.com/aion-nexus/aion-nexus}
+}
+
+================================================================================
+PATENT PENDING
+================================================================================
+
+Certain aspects of the AION NEXUS technology are patent pending:
+- Harmonic Search Algorithm for bearing fault validation
+- Temporal Self-Attention architecture for cross-domain transfer learning
+- Integrated context-physics-AI decision framework
+
+================================================================================
+TRADEMARKS
+================================================================================
+
+AION NEXUS™ is a trademark of SOLITONlab.
+All other trademarks are the property of their respective owners.
+
+================================================================================
+CONTACT INFORMATION
+================================================================================
+
+Daniel Culotta
+Founder & Technical Lead
+Email: daniel.culotta@gmail.com
+Phone: +39 393 2707 135
+LinkedIn: https://linkedin.com/in/danielculotta
+
+SOLITONlab
+Italy
+
+================================================================================
+NO WARRANTY
+================================================================================
+
+THIS DOCUMENTATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+================================================================================
