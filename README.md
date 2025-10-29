@@ -53,9 +53,9 @@ First platform to integrate three complementary approaches:
 - [API Documentation](docs/api/) - Integration guide
 
 ### For Pilots & Deployment
-- [Pilot Program](docs/deployment/pilot_program.md) - 6-month validation structure
-- [Integration Guide](docs/deployment/integration_guide.md) - SCADA/MES integration
-- [Best Practices](docs/deployment/best_practices.md) - Implementation recommendations
+- [Pilot Program](docs/deployment/pilot_program.md) - 6-month validation structure 🚧 Work in Progress
+- [Integration Guide](docs/deployment/integration_guide.md) - SCADA/MES integration 🚧 Work in Progress
+- [Best Practices](docs/deployment/best_practices.md) - Implementation recommendations 🚧 Work in Progress
 
 ## 🌍 Use Cases
 
