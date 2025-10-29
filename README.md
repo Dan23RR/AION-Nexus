@@ -145,7 +145,6 @@ This project documentation is licensed under the Apache License 2.0 - see [LICEN
 Founder & Technical Lead
 📧 daniel.culotta@gmail.com
 📱 +39 393 2707 135
-🔗 [LinkedIn](https://linkedin.com/in/danielculotta)
 
 ---
 

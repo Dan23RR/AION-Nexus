@@ -19,7 +19,6 @@ url: "https://aion-nexus.github.io" # the base hostname & protocol
 
 # Social Links
 github_username: aion-nexus
-linkedin_url: https://linkedin.com/in/danielculotta
 
 # Exclude from build
 exclude:
@@ -52,5 +51,4 @@ logo: /assets/logo/aion-logo.png
 social:
   name: Daniel Culotta
   links:
-    - https://linkedin.com/in/danielculotta
     - https://github.com/aion-nexus
