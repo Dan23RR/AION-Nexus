@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aion-nexus"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Production bearing-fault diagnosis from raw vibration signals"
 authors = [{name = "Daniel Culotta", email = "daniel.culotta@gmail.com"}]
 license = {text = "Apache-2.0"}
@@ -65,6 +65,9 @@ aion-benchmark = "scripts.benchmark_inference:main"
 
 [tool.setuptools.packages.find]
 include = ["aion_nexus*", "server*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "aion_nexus.version.__version__"}  # single source of truth
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

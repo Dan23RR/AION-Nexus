@@ -7,6 +7,7 @@ Public API:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, asdict
@@ -31,6 +32,15 @@ from aion_nexus.version import __version__
 
 
 _logger = logging.getLogger(__name__)
+
+
+def _sha256_file(path: Path, _chunk: int = 1 << 20) -> str:
+    """Stream the SHA-256 of a file without loading it fully into memory."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(_chunk), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 @dataclass
@@ -97,6 +107,8 @@ class InferenceEngine:
         num_classes: int = NUM_CLASSES,
         strict: bool = True,
         version: str | None = None,
+        expected_sha256: str | None = None,
+        allow_unsafe: bool = False,
     ) -> "InferenceEngine":
         """Load a saved checkpoint and instantiate an inference engine.
 
@@ -109,6 +121,13 @@ class InferenceEngine:
                 If None (default), architecture is auto-detected from state_dict
                 keys. Use this only when auto-detection fails (e.g., partial
                 checkpoints).
+            expected_sha256: if provided, the file's SHA-256 is verified before
+                loading and a mismatch raises ValueError (integrity / supply-chain
+                guard). Registered hashes are in checkpoints/README.md.
+            allow_unsafe: by default the checkpoint is loaded with
+                ``weights_only=True``, which blocks arbitrary-code execution from a
+                maliciously-pickled file. Set True only for fully-trusted files to
+                fall back to the unsafe ``weights_only=False`` path.
         """
         checkpoint_path = Path(checkpoint_path)
         if not checkpoint_path.exists():
@@ -117,8 +136,37 @@ class InferenceEngine:
                 "See checkpoints/README.md for how to obtain a model file."
             )
 
+        if expected_sha256 is not None:
+            actual = _sha256_file(checkpoint_path)
+            if actual.lower() != expected_sha256.lower():
+                raise ValueError(
+                    f"Checkpoint SHA-256 mismatch for {checkpoint_path}: expected "
+                    f"{expected_sha256}, got {actual}. Refusing to load a checkpoint "
+                    "whose integrity cannot be verified."
+                )
+            _logger.info("Checkpoint SHA-256 verified: %s", actual)
+
         _logger.info("Loading checkpoint: %s", checkpoint_path)
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        # Safe by default: weights_only=True prevents pickle-based RCE. All shipped
+        # checkpoints load under this path; the unsafe fallback is opt-in only.
+        try:
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        except Exception as exc:
+            if not allow_unsafe:
+                raise ValueError(
+                    f"Failed to load {checkpoint_path} with weights_only=True "
+                    f"({type(exc).__name__}: {exc}). This is the safe path that "
+                    "blocks arbitrary code execution from pickled checkpoints. If "
+                    "you trust this file, pass allow_unsafe=True (and prefer also "
+                    "passing expected_sha256)."
+                ) from exc
+            _logger.warning(
+                "weights_only=True failed (%s); falling back to UNSAFE "
+                "weights_only=False because allow_unsafe=True. Only do this for "
+                "checkpoints you produced or whose SHA-256 you verified.",
+                type(exc).__name__,
+            )
+            ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
         if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
             state_dict = ckpt["model_state_dict"]
@@ -227,7 +275,7 @@ class InferenceEngine:
 
     @torch.no_grad()
     def extract_features(self, signal: np.ndarray) -> np.ndarray:
-        """Return the 512-dim penultimate feature vector (for embedding/clustering)."""
+        """Return the penultimate feature vector (512-dim on v1, 128-dim on v6)."""
         x = preprocess_signal(signal).to(self.device)
         out = self.model(x)
         return out["features"].cpu().numpy()[0]

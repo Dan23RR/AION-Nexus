@@ -1,0 +1,41 @@
+{
+  "checkpoint": "checkpoints/aion_nexus_v1.pth",
+  "n_test_samples": 2792,
+  "aggregate_f1_macro": 0.8843,
+  "published_f1": 0.884,
+  "reproduces_published": true,
+  "per_class": [
+    {
+      "class_index": 0,
+      "class_name": "normal",
+      "support": 560,
+      "precision": 0.9529,
+      "recall": 0.9036,
+      "f1": 0.9276
+    },
+    {
+      "class_index": 1,
+      "class_name": "early",
+      "support": 836,
+      "precision": 0.8717,
+      "recall": 0.9019,
+      "f1": 0.8865
+    },
+    {
+      "class_index": 2,
+      "class_name": "medium",
+      "support": 836,
+      "precision": 0.8508,
+      "recall": 0.8457,
+      "f1": 0.8482
+    },
+    {
+      "class_index": 3,
+      "class_name": "advanced",
+      "support": 560,
+      "precision": 0.8708,
+      "recall": 0.8786,
+      "f1": 0.8747
+    }
+  ]
+}

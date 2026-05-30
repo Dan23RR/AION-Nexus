@@ -148,6 +148,8 @@ When v6 (trained on Learning_set) is evaluated on the industrial Test_set 11 bea
 
 ## Roadmap (future)
 
-- 1.1.0: Multi-domain pre-training across FEMTO + Paderborn + NASA-IMS.
-- 1.2.0: Multi-task heads (severity + location simultaneously).
-- 2.0.0: Streaming inference engine (online sequential decisions).
+> Current released version is **2.0.0** (see above). The items below are post-2.0 plans.
+
+- 2.1.0: Multi-domain pre-training across FEMTO + Paderborn + NASA-IMS.
+- 2.2.0: Multi-task heads (severity + location simultaneously).
+- 2.3.0: Streaming inference engine (online sequential decisions).

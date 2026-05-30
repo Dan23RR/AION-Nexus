@@ -95,12 +95,17 @@ Both models predict extremes (Normal class 0 + Advanced class 3) reliably across
 
 ### Per-class FEMTO test breakdown
 
+Regenerated 2026-05-30 from the v1 checkpoint on the reproduced 2,792-sample test split
+(aggregate macro-F1 = 0.8843, matches published 0.884). Source `results/per_class_f1.json`;
+reproduce with `python -m scripts.verify_per_class`. Replaces an earlier hand-entered table
+that was arithmetically inconsistent (F1 below both P and R for class 0).
+
 | Class | Support | Precision | Recall | F1 | Notes |
 |---|---|---|---|---|---|
-| 0 — Normal | 560 | 0.96 | 0.998 | 0.93 | Highest reliability |
-| 1 — Early | 836 | 0.84 | 0.84 | 0.86 | Boundary fuzzy with Medium |
-| 2 — Medium | 836 | 0.88 | 0.85 | 0.87 | Boundary fuzzy with Early |
-| 3 — Advanced | 560 | 0.91 | 0.95 | 0.93 | High recall — preferred for safety |
+| 0 — Normal | 560 | 0.953 | 0.904 | 0.928 | Highest precision |
+| 1 — Early | 836 | 0.872 | 0.902 | 0.887 | Boundary fuzzy with Medium |
+| 2 — Medium | 836 | 0.851 | 0.846 | 0.848 | Boundary fuzzy with Early |
+| 3 — Advanced | 560 | 0.871 | 0.879 | 0.875 | Adjacent-class confusion dominates error |
 
 Diagonal-dominated confusion matrix: most residual error is Early↔Medium misclassification, which is physically expected since these are arbitrary cut-points on a continuous degradation process.
 
