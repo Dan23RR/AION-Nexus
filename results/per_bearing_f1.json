@@ -1,0 +1,233 @@
+{
+  "checkpoint": "checkpoints\\aion_nexus_v1.pth",
+  "n_bearings_evaluated": 11,
+  "n_bearings_total": 11,
+  "f1_macro_mean": 0.9217651065951209,
+  "f1_macro_std": 0.04258541805037445,
+  "f1_macro_min": 0.8241726762220274,
+  "f1_macro_max": 0.9641496324557219,
+  "f1_macro_range": 0.13997695623369455,
+  "per_bearing": [
+    {
+      "bearing": "Bearing1_3",
+      "status": "ok",
+      "n": 1802,
+      "n_files_total": 1802,
+      "f1_macro": 0.9622919034027599,
+      "accuracy": 0.962819089900111,
+      "true_class_distribution": [
+        361,
+        540,
+        540,
+        361
+      ],
+      "pred_class_distribution": [
+        341,
+        555,
+        571,
+        335
+      ]
+    },
+    {
+      "bearing": "Bearing1_4",
+      "status": "ok",
+      "n": 1139,
+      "n_files_total": 1139,
+      "f1_macro": 0.9314934479645574,
+      "accuracy": 0.9280070237050044,
+      "true_class_distribution": [
+        228,
+        341,
+        342,
+        228
+      ],
+      "pred_class_distribution": [
+        236,
+        335,
+        328,
+        240
+      ]
+    },
+    {
+      "bearing": "Bearing1_5",
+      "status": "ok",
+      "n": 2302,
+      "n_files_total": 2302,
+      "f1_macro": 0.9406505567217658,
+      "accuracy": 0.9387489139878367,
+      "true_class_distribution": [
+        461,
+        690,
+        690,
+        461
+      ],
+      "pred_class_distribution": [
+        440,
+        689,
+        679,
+        494
+      ]
+    },
+    {
+      "bearing": "Bearing1_6",
+      "status": "ok",
+      "n": 2302,
+      "n_files_total": 2302,
+      "f1_macro": 0.9390162016085909,
+      "accuracy": 0.9348392701998263,
+      "true_class_distribution": [
+        461,
+        690,
+        690,
+        461
+      ],
+      "pred_class_distribution": [
+        434,
+        701,
+        718,
+        449
+      ]
+    },
+    {
+      "bearing": "Bearing1_7",
+      "status": "ok",
+      "n": 1502,
+      "n_files_total": 1502,
+      "f1_macro": 0.9615196389289042,
+      "accuracy": 0.9587217043941412,
+      "true_class_distribution": [
+        301,
+        450,
+        450,
+        301
+      ],
+      "pred_class_distribution": [
+        307,
+        458,
+        442,
+        295
+      ]
+    },
+    {
+      "bearing": "Bearing2_3",
+      "status": "ok",
+      "n": 1202,
+      "n_files_total": 1202,
+      "f1_macro": 0.9285904189531455,
+      "accuracy": 0.9317803660565723,
+      "true_class_distribution": [
+        241,
+        360,
+        360,
+        241
+      ],
+      "pred_class_distribution": [
+        247,
+        351,
+        394,
+        210
+      ]
+    },
+    {
+      "bearing": "Bearing2_4",
+      "status": "ok",
+      "n": 612,
+      "n_files_total": 612,
+      "f1_macro": 0.8916846606638021,
+      "accuracy": 0.8872549019607843,
+      "true_class_distribution": [
+        123,
+        183,
+        183,
+        123
+      ],
+      "pred_class_distribution": [
+        109,
+        208,
+        178,
+        117
+      ]
+    },
+    {
+      "bearing": "Bearing2_5",
+      "status": "ok",
+      "n": 2002,
+      "n_files_total": 2002,
+      "f1_macro": 0.9641496324557219,
+      "accuracy": 0.9635364635364635,
+      "true_class_distribution": [
+        401,
+        600,
+        600,
+        401
+      ],
+      "pred_class_distribution": [
+        402,
+        600,
+        568,
+        432
+      ]
+    },
+    {
+      "bearing": "Bearing2_6",
+      "status": "ok",
+      "n": 572,
+      "n_files_total": 572,
+      "f1_macro": 0.8785013430229627,
+      "accuracy": 0.8723776223776224,
+      "true_class_distribution": [
+        115,
+        171,
+        171,
+        115
+      ],
+      "pred_class_distribution": [
+        109,
+        178,
+        166,
+        119
+      ]
+    },
+    {
+      "bearing": "Bearing2_7",
+      "status": "ok",
+      "n": 172,
+      "n_files_total": 172,
+      "f1_macro": 0.8241726762220274,
+      "accuracy": 0.8197674418604651,
+      "true_class_distribution": [
+        35,
+        51,
+        51,
+        35
+      ],
+      "pred_class_distribution": [
+        35,
+        52,
+        58,
+        27
+      ]
+    },
+    {
+      "bearing": "Bearing3_3",
+      "status": "ok",
+      "n": 352,
+      "n_files_total": 352,
+      "f1_macro": 0.9173456926020922,
+      "accuracy": 0.9090909090909091,
+      "true_class_distribution": [
+        71,
+        105,
+        105,
+        71
+      ],
+      "pred_class_distribution": [
+        72,
+        86,
+        134,
+        60
+      ]
+    }
+  ],
+  "interpretation": "High variance across bearings (std > 0.10 or range > 0.30) suggests the model generalizes UNEVENLY across the 11 run-to-failure bearings, which is consistent with the hypothesis that the stratified-random 80/20 split INFLATES the headline F1=0.884 by leaking bearing identity into both train and test. Low variance (std < 0.05) means the headline number is honest. This is NOT a true LOBO measurement (would require retraining); it is a per-bearing breakdown of the existing checkpoint."
+}

@@ -1,0 +1,297 @@
+{
+  "experiment": "Leave-One-Bearing-Out Cross-Validation",
+  "model": "AION NEXUS v6",
+  "training_protocol": "3-stage progressive (5+20+15 epochs, identical to original)",
+  "dataset": "FEMTO PHM 2012",
+  "n_bearings": 6,
+  "n_folds": 6,
+  "total_samples": 7534,
+  "aggregate": {
+    "f1_macro_mean": 0.35234652934732846,
+    "f1_macro_std": 0.11162959188143742,
+    "f1_weighted_mean": 0.3130635159022048,
+    "f1_weighted_std": 0.11589347032596731,
+    "accuracy_mean": 0.4015100545866906,
+    "accuracy_std": 0.09972636496672033
+  },
+  "comparison": {
+    "original_stratified_f1": 0.9343,
+    "lobo_f1_mean": 0.35234652934732846,
+    "lobo_f1_std": 0.11162959188143742,
+    "delta": -0.5819534706526716
+  },
+  "fold_results": [
+    {
+      "fold": 1,
+      "test_bearing": "Bearing1_1",
+      "train_bearings": [
+        "Bearing1_2",
+        "Bearing2_1",
+        "Bearing2_2",
+        "Bearing3_1"
+      ],
+      "val_bearing": "Bearing3_2",
+      "n_train": 3094,
+      "n_val": 1637,
+      "n_test": 2803,
+      "f1_macro": 0.24984154888331467,
+      "f1_weighted": 0.20019187576334024,
+      "accuracy": 0.2864787727434891,
+      "confusion_matrix": [
+        [
+          241,
+          0,
+          55,
+          265
+        ],
+        [
+          0,
+          0,
+          238,
+          602
+        ],
+        [
+          0,
+          0,
+          1,
+          840
+        ],
+        [
+          0,
+          0,
+          0,
+          561
+        ]
+      ],
+      "best_val_f1": 0.3266057551783069,
+      "fold_time_sec": 20762.768282175064
+    },
+    {
+      "fold": 2,
+      "test_bearing": "Bearing1_2",
+      "train_bearings": [
+        "Bearing1_1",
+        "Bearing2_1",
+        "Bearing2_2",
+        "Bearing3_1"
+      ],
+      "val_bearing": "Bearing3_2",
+      "n_train": 5026,
+      "n_val": 1637,
+      "n_test": 871,
+      "f1_macro": 0.4859173250200368,
+      "f1_weighted": 0.44757840672330224,
+      "accuracy": 0.5040183696900115,
+      "confusion_matrix": [
+        [
+          145,
+          25,
+          0,
+          4
+        ],
+        [
+          6,
+          120,
+          0,
+          135
+        ],
+        [
+          0,
+          2,
+          0,
+          259
+        ],
+        [
+          1,
+          0,
+          0,
+          174
+        ]
+      ],
+      "best_val_f1": 0.5185757954382137,
+      "fold_time_sec": 24391.48791408539
+    },
+    {
+      "fold": 3,
+      "test_bearing": "Bearing2_1",
+      "train_bearings": [
+        "Bearing1_1",
+        "Bearing1_2",
+        "Bearing2_2",
+        "Bearing3_1"
+      ],
+      "val_bearing": "Bearing3_2",
+      "n_train": 4986,
+      "n_val": 1637,
+      "n_test": 911,
+      "f1_macro": 0.36784231736508805,
+      "f1_weighted": 0.3471884154628793,
+      "accuracy": 0.4643249176728869,
+      "confusion_matrix": [
+        [
+          143,
+          39,
+          0,
+          0
+        ],
+        [
+          0,
+          273,
+          0,
+          0
+        ],
+        [
+          0,
+          270,
+          0,
+          3
+        ],
+        [
+          5,
+          171,
+          0,
+          7
+        ]
+      ],
+      "best_val_f1": 0.721370611819472,
+      "fold_time_sec": 23015.26585793495
+    },
+    {
+      "fold": 4,
+      "test_bearing": "Bearing2_2",
+      "train_bearings": [
+        "Bearing1_1",
+        "Bearing1_2",
+        "Bearing2_1",
+        "Bearing3_1"
+      ],
+      "val_bearing": "Bearing3_2",
+      "n_train": 5100,
+      "n_val": 1637,
+      "n_test": 797,
+      "f1_macro": 0.3233112630702992,
+      "f1_weighted": 0.25962259518819514,
+      "accuracy": 0.4015056461731493,
+      "confusion_matrix": [
+        [
+          160,
+          0,
+          0,
+          0
+        ],
+        [
+          50,
+          0,
+          0,
+          188
+        ],
+        [
+          0,
+          0,
+          0,
+          239
+        ],
+        [
+          0,
+          0,
+          0,
+          160
+        ]
+      ],
+      "best_val_f1": 0.49547415284484386,
+      "fold_time_sec": 16429.303957939148
+    },
+    {
+      "fold": 5,
+      "test_bearing": "Bearing3_1",
+      "train_bearings": [
+        "Bearing1_1",
+        "Bearing1_2",
+        "Bearing2_1",
+        "Bearing2_2"
+      ],
+      "val_bearing": "Bearing3_2",
+      "n_train": 5382,
+      "n_val": 1637,
+      "n_test": 515,
+      "f1_macro": 0.19328064325309366,
+      "f1_weighted": 0.1606875223298377,
+      "accuracy": 0.2524271844660194,
+      "confusion_matrix": [
+        [
+          103,
+          0,
+          0,
+          0
+        ],
+        [
+          148,
+          6,
+          0,
+          0
+        ],
+        [
+          128,
+          27,
+          0,
+          0
+        ],
+        [
+          70,
+          9,
+          3,
+          21
+        ]
+      ],
+      "best_val_f1": 0.6749980188703097,
+      "fold_time_sec": 28432.307304620743
+    },
+    {
+      "fold": 6,
+      "test_bearing": "Bearing3_2",
+      "train_bearings": [
+        "Bearing1_1",
+        "Bearing1_2",
+        "Bearing2_1",
+        "Bearing2_2"
+      ],
+      "val_bearing": "Bearing3_1",
+      "n_train": 5382,
+      "n_val": 515,
+      "n_test": 1637,
+      "f1_macro": 0.49388607849213817,
+      "f1_weighted": 0.4631122799456745,
+      "accuracy": 0.5003054367745876,
+      "confusion_matrix": [
+        [
+          215,
+          111,
+          2,
+          0
+        ],
+        [
+          1,
+          251,
+          64,
+          174
+        ],
+        [
+          0,
+          3,
+          27,
+          461
+        ],
+        [
+          0,
+          0,
+          2,
+          326
+        ]
+      ],
+      "best_val_f1": 0.47459889267015076,
+      "fold_time_sec": 28157.707407474518
+    }
+  ],
+  "total_time_sec": 141189.0176241398,
+  "date": "2026-02-11"
+}

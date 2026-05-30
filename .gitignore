@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.installed.cfg
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Trained checkpoints (not in repo; download separately)
+checkpoints/*.pth
+checkpoints/*.onnx
+checkpoints/*.pt
+
+# Data (not in repo)
+data/
+*.csv
+!examples/sample_signal.csv
+
+# Logs
+*.log
+logs/
+
+# Model export artifacts
+*.onnx
+
+# Local environment variables
+.env
+.env.local

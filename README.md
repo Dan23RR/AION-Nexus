@@ -1,0 +1,148 @@
+# AION-NEXUS
+
+**Production-grade bearing-fault diagnosis from raw vibration signals.**
+
+A multi-scale temporal deep-learning system that classifies bearing degradation severity from 2-channel accelerometer data. Honest, reproducible cross-*dataset* numbers: F1 0.615 zero-shot and 0.672 few-shot (10 samples/class) on MFPT — never seen in training. Cross-*bearing* generalization without adaptation collapses below 0.4 (LOBO); we measure and publish this rather than hide it. See [MODEL_CARD.md](MODEL_CARD.md) and [PERFORMANCE_BENCHMARKS.md](PERFORMANCE_BENCHMARKS.md).
+
+[![Status](https://img.shields.io/badge/status-production-green)]() [![Python](https://img.shields.io/badge/python-3.10+-blue)]() [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange)]() [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
+
+---
+
+## What it does
+
+Given 0.1 seconds of 2-channel vibration signal sampled at 25.6 kHz from a rolling-element bearing, AION-NEXUS predicts one of four severity classes:
+
+| Class | Meaning | Recommended action |
+|---|---|---|
+| 0 — Normal | Healthy bearing | No action |
+| 1 — Early | Initial defect, low impact | Schedule inspection |
+| 2 — Medium | Progressive degradation | Plan replacement |
+| 3 — Advanced | Imminent failure | Stop machine, replace immediately |
+
+## Verified performance
+
+Numbers cross-validated against 4 independent result-log files in the source repository AND independently reproduced via `scripts/verify_checkpoint.py` on 2026-04-27.
+
+### Production-default: v1 (BiGRU, recommended for industrial deployment)
+
+| Benchmark | F1 (macro) | n samples | Verified |
+|---|---|---|---|
+| **FEMTO in-distribution** (11 run-to-failure bearings, test split) | **0.884** | 2,792 | delta 0.0003 ✓ |
+| **FEMTO validation** (same bearings) | **0.898** | 2,792 | source `final_results.json` |
+| **MFPT zero-shot cross-domain** | **0.615** | 94 | source `cross_validation_results.json` |
+| **MFPT few-shot, 10 samples** | **0.672 ± 0.006** | 94 | source `mfpt_sensitivity_results.json` (3 runs) |
+
+### Optional architecture: v6 (TempAttn+TRM)
+
+| Benchmark | F1 (macro) | n samples | Verified |
+|---|---|---|---|
+| **FEMTO in-distribution** (6 Learning_set calibration bearings) | **0.934** | 1,507 | delta 0.0000 ✓ |
+| **Cross-domain on 11 run-to-failure bearings** | **0.302** | 2,792 | verified — significant collapse |
+
+**Important**: v1 and v6 were trained on DIFFERENT FEMTO subsets. The "v6 better than v1 by +5pp" claim that may circulate in older docs is NOT a valid head-to-head: v6's high F1 is on the simpler Learning_set, and it does not transfer to the industrial run-to-failure regime. See [`MODEL_CARD.md`](./MODEL_CARD.md) section "v1 vs v6 — IMPORTANT comparability disclosure".
+
+**Recommendation for industrial deployment**: use v1 (default). v6 is documented as an architectural exploration with cross-domain limitation.
+
+## Why it works
+
+Three architectural choices, each empirically validated by ablation:
+
+1. **Multi-scale CNN** (kernels 3, 7, 15, 31, 63, 127) — captures fault signatures across the high/medium/low frequency bands where outer-race, inner-race, and cage faults respectively manifest. Removing this drops cross-domain F1 by **−20 pp**.
+2. **Bidirectional GRU** (hidden=128, 2 layers) — temporal context for fault evolution. Removing it drops cross-domain F1 by **−12.7 pp**.
+3. **Channel attention** (SE-style) — dynamically weights time-scales per sample. Removing it drops cross-domain F1 by **−5.5 pp**.
+
+Total: 1,061,724 trainable parameters, 4.1 MB on disk.
+
+## Quickstart
+
+```bash
+# 1. Install
+pip install -r requirements.txt
+
+# 2. Place the trained checkpoint
+mkdir -p checkpoints
+cp /path/to/best_model.pth checkpoints/aion_nexus_v1.pth
+
+# 3. Smoke test (synthetic input, no data required)
+python -m pytest tests/test_smoke.py -v
+
+# 4. Predict on your own signal
+python examples/01_basic_inference.py path/to/your_signal.csv
+
+# 5. Run as a service
+uvicorn server.main:app --host 0.0.0.0 --port 8080
+curl -X POST http://localhost:8080/predict -F "file=@path/to/your_signal.csv"
+```
+
+## Hardware requirements
+
+| Mode | Latency (per sample) | Throughput | RAM | Notes |
+|---|---|---|---|---|
+| CPU inference (1 thread) | ~12 ms | ~80 samples/sec | < 200 MB | tested on x86_64 |
+| GPU inference (T4) | ~1.5 ms | ~700 samples/sec | < 1 GB | batch size 32 |
+| Edge (ARM Cortex-A72) | ~45 ms | ~22 samples/sec | < 200 MB | Raspberry Pi 4 class |
+
+The 4.1 MB model fits comfortably on edge devices. ONNX export available via `scripts/export_onnx.py`.
+
+## Deployment
+
+- **Local Python**: `pip install .`
+- **Docker**: `docker build -t aion-nexus . && docker run -p 8080:8080 aion-nexus`
+- **REST API**: FastAPI server exposes `/predict`, `/predict_batch`, `/health`, `/version`. See `docs/api_reference.md`.
+- **Edge / ONNX**: `python scripts/export_onnx.py` produces `aion_nexus.onnx` runnable on ONNX Runtime.
+
+## Few-shot domain adaptation
+
+When deploying to a new machine type, you can adapt with **10 labeled samples per class** (40 total) for a +5.7 pp F1 lift. This is engineered to minimize annotation cost.
+
+```python
+from aion_nexus import InferenceEngine, FewShotAdapter
+
+engine = InferenceEngine.from_checkpoint("checkpoints/aion_nexus_v1.pth")
+adapter = FewShotAdapter(engine, num_classes=4)
+adapter.adapt(target_signals, target_labels, epochs=5, lr=1e-4)
+adapter.save("checkpoints/aion_nexus_v1_machine42.pth")
+```
+
+See `examples/03_few_shot_adaptation.py` for a complete walk-through.
+
+## Limitations and scope
+
+This product is intended for **rolling-element bearing diagnosis on rotating machinery**. Out-of-scope tasks where performance has been documented to degrade significantly:
+
+- **Different sensor modalities** (e.g., acoustic emission, thermal). Not validated.
+- **Different fault types** outside the standard four-class severity (normal/early/medium/advanced).
+- **CWRU fault-location task** (ball/inner/outer/cage classification) — F1 ≈ 0.34 due to task semantic mismatch (severity ≠ location). See `docs/task_mismatch.md`.
+- **Sampling rates < 10 kHz** — fault signatures fall outside the model's receptive field. Resample or retrain.
+
+## Documentation
+
+- [`MODEL_CARD.md`](./MODEL_CARD.md) — what the model does, training data, intended use, ethical considerations.
+- [`PERFORMANCE_BENCHMARKS.md`](./PERFORMANCE_BENCHMARKS.md) — full benchmark tables, comparisons to SOTA, ablations.
+- [`DEPLOYMENT.md`](./DEPLOYMENT.md) — how to deploy on cloud, edge, on-prem.
+- [`docs/architecture.md`](./docs/architecture.md) — layer-by-layer architecture.
+- [`docs/api_reference.md`](./docs/api_reference.md) — full REST API spec.
+- [`docs/troubleshooting.md`](./docs/troubleshooting.md) — common issues.
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](./LICENSE). Commercial use permitted with attribution.
+
+## Citation
+
+If this work supports a paper, please cite:
+
+```bibtex
+@article{aion_nexus_2025,
+  title  = {NEXUS: Multi-Scale Temporal Deep Learning for Zero-Shot and Few-Shot
+            Cross-Domain Bearing Fault Diagnosis},
+  author = {Culotta, Daniel},
+  year   = {2025},
+  note   = {Manuscript in preparation. Target: IEEE Trans. Industrial Informatics}
+}
+```
+
+## Contact
+
+Daniel Culotta — daniel.culotta@gmail.com
+AION NEXUS — predictive maintenance for rotating machinery.

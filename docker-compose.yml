@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  aion-nexus:
+    build: .
+    image: aion-nexus:1.0.0
+    container_name: aion-nexus
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      AION_DEVICE: cpu
+      AION_CHECKPOINT: /app/checkpoints/aion_nexus_v1.pth
+    volumes:
+      - ./checkpoints:/app/checkpoints:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M

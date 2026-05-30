@@ -1,0 +1,60 @@
+{
+  "checkpoint": "checkpoints\\aion_nexus_v1.pth",
+  "preprocessing_version": "1.0.2",
+  "diagnostics": {
+    "architecture_version": "v1",
+    "param_count": 1061724,
+    "expected_param_count": 1061724,
+    "param_match": true,
+    "synthetic_class_distribution": [
+      0,
+      0,
+      28,
+      22
+    ],
+    "collapsed_to_one_class": false
+  },
+  "evaluations": [
+    {
+      "path": "A_original_loader",
+      "status": "DEVIATION",
+      "n_samples": 1507,
+      "f1_macro": 0.38190751578706755,
+      "accuracy": 0.3735899137358991,
+      "per_class_f1": [
+        0.6176470588235293,
+        0.12386706948640483,
+        0.38669064748201437,
+        0.3994252873563218
+      ],
+      "confusion_matrix": [
+        [
+          168,
+          99,
+          32,
+          3
+        ],
+        [
+          52,
+          41,
+          277,
+          81
+        ],
+        [
+          16,
+          50,
+          215,
+          171
+        ],
+        [
+          6,
+          21,
+          136,
+          139
+        ]
+      ],
+      "published_f1": 0.884,
+      "delta": 0.5020924842129324
+    }
+  ]
+}

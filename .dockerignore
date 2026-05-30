@@ -1,0 +1,41 @@
+# VCS
+.git
+.gitignore
+.github
+
+# Python build artifacts
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+build/
+dist/
+htmlcov/
+.coverage
+.coverage.*
+
+# Virtual envs
+.venv
+venv
+env
+
+# Editor / IDE
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Local data and checkpoints (mount via volume instead)
+checkpoints/*.pth
+checkpoints/*.onnx
+data/
+
+# Docs that aren't needed at runtime
+docs/
+examples/
+tests/
+*.md
+!aion_nexus/**/*.md
