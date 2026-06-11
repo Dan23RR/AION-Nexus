@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
 dependencies = [
     "torch>=2.0.0,<3.0.0",
@@ -40,6 +41,7 @@ server = [
     "uvicorn[standard]>=0.27.0,<1.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "python-multipart>=0.0.9",
+    "prometheus-client>=0.20.0,<1.0.0",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -55,16 +57,22 @@ onnx = [
 ]
 
 [project.urls]
-Documentation = "./README.md"
-"Model Card" = "./MODEL_CARD.md"
-Performance = "./PERFORMANCE_BENCHMARKS.md"
+Homepage = "https://github.com/[org]/aion-nexus"
+Documentation = "https://github.com/[org]/aion-nexus/blob/main/README.md"
+"Model Card" = "https://github.com/[org]/aion-nexus/blob/main/MODEL_CARD.md"
+Performance = "https://github.com/[org]/aion-nexus/blob/main/PERFORMANCE_BENCHMARKS.md"
+Changelog = "https://github.com/[org]/aion-nexus/blob/main/CHANGELOG.md"
 
 [project.scripts]
 aion-verify = "scripts.verify_checkpoint:main"
 aion-benchmark = "scripts.benchmark_inference:main"
 
 [tool.setuptools.packages.find]
-include = ["aion_nexus*", "server*"]
+# "scripts*" is required: the console entry points above import scripts.* modules.
+include = ["aion_nexus*", "server*", "scripts*"]
+
+[tool.setuptools.package-data]
+aion_nexus = ["py.typed"]
 
 [tool.setuptools.dynamic]
 version = {attr = "aion_nexus.version.__version__"}  # single source of truth
@@ -74,9 +82,26 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 
+[tool.coverage.run]
+source = ["aion_nexus", "server"]
+branch = true
+omit = ["*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Cover the whole repo: package, server, scripts, tests, examples.
+include = ["pyproject.toml", "aion_nexus/**/*.py", "server/**/*.py", "scripts/**/*.py", "tests/**/*.py", "examples/**/*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A"]

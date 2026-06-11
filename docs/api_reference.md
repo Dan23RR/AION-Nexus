@@ -1,25 +1,45 @@
 # REST API Reference
 
-The AION-NEXUS server exposes a small REST API. All responses are JSON.
+The AION-NEXUS server exposes a small REST API. All responses are JSON (except `/metrics`, which uses the Prometheus exposition format). Applies to package version 2.2.0.
 
 Base URL (default): `http://localhost:8080`
 
 ## Authentication
 
-The default deployment has no authentication. For production, place behind a reverse proxy (nginx, traefik) that handles TLS + auth.
+Since 2.2.0 the server supports optional in-app API-key authentication:
+
+- Set the `AION_API_KEY` environment variable to enable it. When set, every request must
+  carry the key in the `X-API-Key` header; requests without it (or with a wrong key) get
+  `401 Unauthorized`.
+- **`GET /health` is exempt** so orchestrator liveness probes keep working without secrets.
+- When `AION_API_KEY` is unset (default), no auth is enforced — for production either set it
+  or place the server behind a reverse proxy (nginx, traefik) that handles TLS + auth.
+  TLS termination is always the operator's responsibility (the bundled server does not do TLS).
+
+## Server configuration (environment variables)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `AION_CHECKPOINT` | `checkpoints/aion_nexus_v1.pth` | Checkpoint to serve |
+| `AION_DEVICE` | `cpu` | Inference device |
+| `AION_API_KEY` | unset (auth off) | Enables `X-API-Key` auth (see above) |
+| `AION_MAX_BODY_BYTES` | `10485760` (10 MB) | Request body cap; larger requests are rejected with `413` before parsing |
+| `AION_CORS_ORIGINS` | unset (no CORS headers) | Comma-separated allowlist of origins |
+| `AION_LOG_JSON` | unset (plain text logs) | `1` switches to structured JSON logs with a per-request `request_id` |
 
 ## Endpoints
 
 ### `GET /health`
 
-Liveness probe with operational telemetry.
+Liveness probe with operational telemetry. Exempt from API-key auth.
 
 **Response**
 
 ```json
 {
   "status": "healthy",
-  "version": "1.0.0",
+  "version": "2.2.0",
+  "architecture_version": "v1",
   "device": "cpu",
   "model_param_count": 1061724,
   "inference_count": 1234,
@@ -27,15 +47,20 @@ Liveness probe with operational telemetry.
 }
 ```
 
-`status` may be `healthy`, `degraded`, or `down`. A `down` status means the checkpoint failed to load — set the `AION_CHECKPOINT` env var or fix the path.
+`status` may be `healthy`, `degraded`, or `down`. A `down` status means the checkpoint failed to load — set the `AION_CHECKPOINT` env var or fix the path. `architecture_version` reports which architecture was auto-detected from the checkpoint (`v1`, `v3`, or `v6`).
 
 ### `GET /version`
 
 Returns the model + API version.
 
 ```json
-{ "model": "1.0.0", "api": "1.0.0" }
+{ "model": "2.2.0", "api": "2.2.0" }
 ```
+
+### `GET /metrics`
+
+Prometheus exposition format (text), powered by `prometheus-client`. Exposes request counts
+and latency histograms for scraping. Point your Prometheus scrape config at this endpoint.
 
 ### `POST /predict`
 
@@ -83,13 +108,15 @@ curl -X POST http://localhost:8080/predict_csv -F "file=@acc_00321.csv"
     "plan_replacement": true
   },
   "latency_ms": 12.4,
-  "model_version": "1.0.0"
+  "model_version": "2.2.0"
 }
 ```
 
 #### Errors
 
 - `400 Bad Request` — signal validation failed (wrong shape, NaN, stuck sensor, too short)
+- `401 Unauthorized` — `AION_API_KEY` is set and the `X-API-Key` header is missing or wrong
+- `413 Payload Too Large` — request body exceeds `AION_MAX_BODY_BYTES` (default 10 MB)
 - `503 Service Unavailable` — checkpoint not loaded; set `AION_CHECKPOINT` env var
 
 ### `POST /predict_batch`
@@ -127,7 +154,7 @@ Response includes the aggregated decision and the number of windows used:
   "recommended_action": {...},
   "n_windows": 50,
   "aggregation_method": "mean",
-  "model_version": "1.0.0"
+  "model_version": "2.2.0"
 }
 ```
 
@@ -143,7 +170,8 @@ These thresholds are configurable in `aion_nexus/config.py` — tune per deploym
 
 ## Rate limits
 
-The default deployment has no rate limiting. For multi-tenant production:
+The default deployment has no rate limiting (body size is capped in-app via
+`AION_MAX_BODY_BYTES`). For multi-tenant production:
 
 - Use a reverse proxy (nginx / traefik) for IP-based rate limiting.
 - Use FastAPI middleware (e.g., `slowapi`) for per-user/per-API-key limits.

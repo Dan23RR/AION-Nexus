@@ -26,6 +26,21 @@ subset, NOT comparable to v1's test number. v6 collapses cross-bearing (0.302) a
 under LOBO (0.352 ± 0.112, see `results/lobo_cv_v6/`). Use only for short-cycle
 calibration regimes.
 
+## v3 substrate checkpoint (self-supervised foundation encoder)
+
+**File**: `aion_nexus_substrate_v3.pth`
+**SHA-256**: `be0e5b146e5e0fa28d9dfb10bf3015c5f2d7ca217896f7866fd793454c5505b6`
+**Size**: ~4.9 MB (FP32; pretrained encoder 1,220,928 params + `cfg`/`objective` metadata)
+**Pretraining**: PatchTST-style patch transformer, self-supervised contrastive NT-Xent,
+400 epochs on a pooled unlabeled vibration corpus (9,315 windows: FEMTO + MFPT + CWRU).
+Promoted to production in v2.1.0 (2026-06-04).
+**Verified (LOBO on FEMTO)**: 10-shot macro-F1 0.783 ± 0.041; full-transfer 0.533.
+**Note**: this file contains the pretrained ENCODER only — the classification head is
+trained per-deployment (few-shot). `InferenceEngine.from_checkpoint` refuses to serve it
+directly (the head would be untrained); adapt it with `FewShotAdapter` and serve the
+adapted checkpoint instead. Zero-shot cross-rig is NOT reliable (mean lift −0.03) —
+collect ~10 labels/class on the target machine.
+
 ## Adapted checkpoints
 
 Few-shot adaptation produces additional checkpoints (e.g., `aion_nexus_v1_machine42.pth`) which inherit from `aion_nexus_v1.pth`. Each adapted checkpoint should be tracked with:

@@ -12,12 +12,16 @@ import pytest
 import torch
 
 from aion_nexus import (
-    AIONNexus, AIONNexusV6,
-    create_aion_nexus, create_aion_nexus_v6,
+    MODEL_PARAM_COUNT,
+    NUM_CHANNELS,
+    NUM_CLASSES,
+    SIGNAL_LENGTH,
     V6_PARAM_COUNT_4CLASS,
     InferenceEngine,
-    NUM_CHANNELS, SIGNAL_LENGTH, NUM_CLASSES, MODEL_PARAM_COUNT,
-    TemporalSelfAttention, TinyRecursiveReasoner,
+    TemporalSelfAttention,
+    TinyRecursiveReasoner,
+    create_aion_nexus,
+    create_aion_nexus_v6,
 )
 
 

@@ -9,7 +9,7 @@ import threading
 import numpy as np
 import pytest
 
-from aion_nexus import InferenceEngine, NUM_CHANNELS, SIGNAL_LENGTH
+from aion_nexus import NUM_CHANNELS, SIGNAL_LENGTH, InferenceEngine
 from aion_nexus.model import create_aion_nexus
 
 
@@ -39,8 +39,10 @@ class TestThreadSafetyReadOnly:
                 results.append(r)
 
         threads = [threading.Thread(target=worker) for _ in range(10)]
-        for t in threads: t.start()
-        for t in threads: t.join()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
         assert len(results) == 10
         # All must produce same prediction
@@ -73,10 +75,12 @@ class TestThreadSafetyReadOnly:
 
         threads = [threading.Thread(target=worker, args=(i, s))
                    for i, s in enumerate(signals)]
-        for t in threads: t.start()
-        for t in threads: t.join()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
-        for i, (ref, conc) in enumerate(zip(ref_results, results)):
+        for i, (ref, conc) in enumerate(zip(ref_results, results, strict=False)):
             assert ref.predicted_class_index == conc.predicted_class_index, \
                 f"Mismatch at {i}: ref={ref.predicted_class_index}, " \
                 f"concurrent={conc.predicted_class_index}"
@@ -92,8 +96,10 @@ class TestThreadSafetyReadOnly:
                 results.append(f)
 
         threads = [threading.Thread(target=worker) for _ in range(8)]
-        for t in threads: t.start()
-        for t in threads: t.join()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
         assert len(results) == 8
         ref = results[0]
@@ -112,8 +118,10 @@ class TestThreadSafetyReadOnly:
 
         threads = [threading.Thread(target=worker) for _ in range(n_threads)]
         before = engine.get_health()["inference_count"]
-        for t in threads: t.start()
-        for t in threads: t.join()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
         after = engine.get_health()["inference_count"]
 
         # Counter is non-atomic; expect increments equal to total OR slightly

@@ -8,8 +8,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
-
 from aion_nexus import InferenceEngine
 from aion_nexus.utils import load_signal_csv
 
@@ -41,7 +39,7 @@ def main(argv: list[str]) -> int:
     elapsed = time.perf_counter() - t0
 
     counts = {"normal": 0, "early": 0, "medium": 0, "advanced": 0}
-    for path, result in zip(csvs, results):
+    for path, result in zip(csvs, results, strict=False):
         counts[result.predicted_class_name] += 1
         flag = "[!]" if result.recommended_action.get("stop_machine") else "   "
         print(

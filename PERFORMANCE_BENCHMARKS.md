@@ -1,6 +1,6 @@
-# Performance Benchmarks — AION-NEXUS v1.0
+# Performance Benchmarks — AION-NEXUS v2.2 (updated 2026-06-11)
 
-All numbers verified against 4 independent JSON result-log files in the source repository (`final_results.json`, `cross_validation_results.json`, `mfpt_sensitivity_results.json`, `aion_nexus_training.log`). Cross-source agreement confirms numbers are not transcription artifacts.
+Core v1 numbers verified against 4 independent JSON result-log files in the source repository (`final_results.json`, `cross_validation_results.json`, `mfpt_sensitivity_results.json`, `aion_nexus_training.log`). Cross-source agreement confirms numbers are not transcription artifacts. Tables that are estimates or literature-reported (not backed by artifacts in `results/`) are explicitly labeled as such.
 
 ## In-distribution: FEMTO bearing dataset
 
@@ -81,11 +81,11 @@ Full JSON output: `results/per_bearing_f1.json`. Markdown report: `results/per_b
 
 Both models predict extremes (Normal class 0 + Advanced class 3) reliably across regimes; both lose intermediate severity classification when the test distribution differs from training.
 
-### v6 architectural advantages (vs v1)
+### v6 architectural properties (vs v1)
 
 | Property | v1 | v6 | Δ |
 |---|---|---|---|
-| Test F1 macro | 0.884 | 0.934 | **+5.0 pp** |
+| Test F1 macro (on its OWN test set) | 0.884 | 0.934 | NOT comparable — different test sets (see Critical reading note above); the apparent "+5.0 pp" is NOT a valid head-to-head |
 | Parameters | 1,061,724 | 716,577 | **−32.5%** |
 | Disk size (FP32) | 4.1 MB | 2.73 MB | −33% |
 | CPU inference (per sample) | ~12 ms | ~16 ms | +33% (still real-time) |
@@ -121,6 +121,13 @@ No MFPT samples in training. Resampled from 97.6 kHz to 25.6 kHz to match traini
 | Medium recall | 100% (23/23) | `cross_validation_results.json` |
 | Advanced recall | 60% (28/47) | `cross_validation_results.json` |
 
+> **Reproducibility caveat (2026-06-04)**: the 0.615 zero-shot number comes from the
+> October 2025 evaluation logs and is **not currently reproducible from the shipped code**:
+> the current MFPT loader yields F1 = 0.5546 on n = 224 windows vs the logged 0.615 on
+> n = 94; the original windowing/selection recipe was lost. Documented in
+> `AION_NEXUS_RD/experiments/substrate_F1/PREREG_DEVIATION_2026-06-04.md`. Treat 0.615 as a
+> logged historical result, not a currently verifiable one.
+
 **Cross-domain gap from FEMTO test (0.884) to MFPT zero-shot (0.615): −26.9 percentage points.**
 
 ## Cross-domain: MFPT few-shot adaptation
@@ -138,17 +145,50 @@ No MFPT samples in training. Resampled from 97.6 kHz to 25.6 kHz to match traini
 
 ### Sample efficiency curve
 
-| Samples/class | Total samples | F1 macro | Std | Run cost |
-|---|---|---|---|---|
-| 0 (zero-shot) | 0 | 0.615 | n/a | $0 |
-| 1 | 4 | 0.543 | 0.082 | ~$5 |
-| 2 | 8 | 0.621 | 0.047 | ~$10 |
-| 3 | 12 | 0.658 | 0.031 | ~$15 |
-| 5 | 20 | 0.681 | 0.024 | ~$25 |
-| 10 | 40 | 0.702 | 0.018 | ~$50 |
-| Full retrain | 13,959 | 0.898 | n/a | ~$15,000 |
+> **Provenance note**: the intermediate points (1–5 samples/class) come from the October 2025
+> sensitivity analysis and have **not been independently re-verified**. The 10-samples/class
+> point is reconciled to the verified value **0.672 ± 0.006** (3 runs, table above); an
+> earlier revision of this table showed an unexplained 0.702 at this point. The dollar
+> "run cost" figures ($5 … $15,000) and the "224× cheaper than full retraining" ratio shown
+> in earlier revisions were **unmeasured estimates** and have been removed.
 
-**Optimal operating point**: 10 samples per class. Variance drops to σ=0.018 (stable). Cost-performance ratio is **224× better** than full retraining.
+| Samples/class | Total samples | F1 macro | Std | Provenance |
+|---|---|---|---|---|
+| 0 (zero-shot) | 0 | 0.615 | n/a | logged Oct-2025 — see reproducibility caveat above |
+| 1 | 4 | 0.543 | 0.082 | sensitivity analysis, not independently verified |
+| 2 | 8 | 0.621 | 0.047 | sensitivity analysis, not independently verified |
+| 3 | 12 | 0.658 | 0.031 | sensitivity analysis, not independently verified |
+| 5 | 20 | 0.681 | 0.024 | sensitivity analysis, not independently verified |
+| 10 | 40 | **0.672** | 0.006 | **verified** (3 runs, few-shot table above) |
+| Full retrain | 13,959 | 0.898 | n/a | FEMTO validation F1 — different dataset/regime, not an MFPT number |
+
+**Recommended operating point**: 10 samples per class — the only point on this curve with a
+verified, low-variance value (0.672 ± 0.006).
+
+## Substrate v3 (few-shot cross-domain) — added 2.1.0
+
+Self-supervised **PatchTST** foundation encoder (1,220,928 params), pretrained contrastively
+(NT-Xent) on an unlabeled FEMTO+MFPT+CWRU corpus (9,315 windows, 400 epochs). Frozen encoder +
+small per-deployment few-shot head. Promoted to production in 2.1.0 (2026-06-04).
+
+| Benchmark (FEMTO leave-one-bearing-out) | F1 macro | Status |
+|---|---|---|
+| LOBO 10-shot (10 labels/class on the held-out bearing) | **0.783 ± 0.041** | verified |
+| LOBO full-transfer (no target labels) | 0.533 | verified |
+
+**Honest positioning (§6.31):**
+
+- v3 is **NOT** a better in-distribution classifier — v1's FEMTO test F1 = 0.884 stands.
+- Cross-**dataset** 10-shot macro-F1 0.91–1.00 (FEMTO↔MFPT↔CWRU, all pairs; lift +0.277 vs
+  random-init) — **binary health (2-class) task, vs a weak random-init control**; not a
+  4-class severity result.
+- Zero-shot cross-rig is **NOT reliable** (mean lift −0.03 vs random-init) — collect the
+  ~10 labels/class.
+- Scaling did not move the 10-shot ceiling (≈ 0.78, stable): **v3.1** (3.2M params, hybrid
+  NT-Xent⊕MAE) reached 10-shot 0.801 ± 0.036 = +0.018, below the pre-registered +0.03
+  threshold — retracted, NOT promoted (`RETRACTION_substrate_v31.md`). **v3.2** (+Paderborn
+  data, IMS = 0 windows) 10-shot 0.778 ± 0.024 (flat), full-transfer 0.565 (best) — NOT
+  promoted.
 
 ## Ablation study: component contribution
 
@@ -166,7 +206,10 @@ Each row removes ONE component from full NEXUS, holds everything else constant.
 
 ## Comparison to state of the art
 
-Numbers for prior methods reported in their original publications under comparable settings.
+> **Provenance caveat**: the prior-method numbers below are **literature-reported, not
+> independently reproduced** by this project; citations needed. Settings (datasets, splits,
+> preprocessing) may not be exactly comparable. Treat this table as indicative, not as a
+> verified head-to-head benchmark.
 
 | Method | Year | Zero-shot F1 (MFPT) | Few-shot 10-sample F1 | Approach |
 |---|---|---|---|---|
@@ -177,11 +220,15 @@ Numbers for prior methods reported in their original publications under comparab
 | Deep CORAL | 2023 | 0.51 | n/a | Feature correlation |
 | **AION-NEXUS** | **2025** | **0.615** | **0.672** | **Multi-scale + temporal + attention** |
 
-AION-NEXUS holds the best reported number in both zero-shot and 10-sample few-shot configurations on MFPT, and does so without adversarial training, meta-training, or target-domain pre-training.
+Subject to the provenance caveat above, AION-NEXUS reports the best number in both zero-shot and 10-sample few-shot configurations on MFPT among the listed methods, and does so without adversarial training, meta-training, or target-domain pre-training.
 
 ## Inference performance
 
-Measured on representative hardware. Single forward pass on a 2,560-sample 2-channel signal.
+> **Estimated, not benchmarked in `results/`**: the figures below are engineering estimates —
+> no latency artifact in `results/` backs them. Measure on your target hardware with
+> `python -m scripts.benchmark_inference` before relying on them.
+
+Single forward pass on a 2,560-sample 2-channel signal.
 
 | Hardware | Latency (per sample) | Throughput (batch=1) | Throughput (batch=32) | Memory |
 |---|---|---|---|---|
@@ -190,7 +237,7 @@ Measured on representative hardware. Single forward pass on a 2,560-sample 2-cha
 | NVIDIA T4 GPU | 1.5 ms | 670 samples/s | 12,000 samples/s | 800 MB |
 | ARM Cortex-A72 (Pi 4) | 45 ms | 22 samples/s | 65 samples/s | 180 MB |
 
-ONNX export reduces latency by approximately 30% via constant folding and operator fusion.
+ONNX export reduces latency by approximately 30% via constant folding and operator fusion (also an estimate — verify with `scripts/verify_onnx_parity.py` and your own timing).
 
 ## Negative results documented
 

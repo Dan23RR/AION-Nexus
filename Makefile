@@ -105,8 +105,8 @@ manifest-check:  ## Verify package files match manifest
 # ---- Docker -------------------------------------------------------------
 
 docker-build:  ## Build production container image
-	docker build -t aion-nexus:1.0.1 .
-	docker tag aion-nexus:1.0.1 aion-nexus:latest
+	docker build -t aion-nexus:2.2.0 .
+	docker tag aion-nexus:2.2.0 aion-nexus:latest
 
 docker-run:  ## Run container locally on $(PORT) with checkpoint mounted
 	docker run -d --rm --name aion-nexus \

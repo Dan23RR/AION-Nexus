@@ -16,11 +16,11 @@ Skipping the HP filter degrades F1 from 0.884 → 0.28 (verified empirically
 from __future__ import annotations
 
 import logging
+
 import numpy as np
 import torch
 
 from aion_nexus.config import NUM_CHANNELS, SAMPLING_RATE_HZ, SIGNAL_LENGTH
-
 
 _logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def validate_signal(signal: np.ndarray) -> np.ndarray:
         try:
             signal = np.asarray(signal, dtype=np.float32)
         except Exception as exc:
-            raise SignalValidationError(f"Cannot convert input to ndarray: {exc}")
+            raise SignalValidationError(f"Cannot convert input to ndarray: {exc}") from exc
 
     if signal.ndim != 2:
         raise SignalValidationError(
@@ -84,7 +84,7 @@ def validate_signal(signal: np.ndarray) -> np.ndarray:
         start = (n - SIGNAL_LENGTH) // 2
         signal = signal[:, start:start + SIGNAL_LENGTH]
 
-    # Detect stuck sensors: per-channel std must exceed STUCK_THRESHOLD.
+    # Detect stuck sensors: per-channel std must exceed the stuck threshold.
     # Threshold = 1e-7 chosen for two reasons:
     #   1. Real industrial accelerometers below this std are effectively dead
     #      (typical noise floor of PCB 352C03 is ~5 μg = 5e-6 g, well above 1e-7).
@@ -93,11 +93,11 @@ def validate_signal(signal: np.ndarray) -> np.ndarray:
     # Compute std in float64 to avoid float32 precision drift altering the
     # stuck-detection at the boundary.
     stds = signal.astype(np.float64).std(axis=1)
-    STUCK_THRESHOLD = 1e-7
-    if np.any(stds < STUCK_THRESHOLD):
+    stuck_threshold = 1e-7
+    if np.any(stds < stuck_threshold):
         bad_ch = int(np.argmin(stds))
         raise SignalValidationError(
-            f"Channel {bad_ch} appears stuck (std={stds[bad_ch]:.2e} < {STUCK_THRESHOLD:.0e}); "
+            f"Channel {bad_ch} appears stuck (std={stds[bad_ch]:.2e} < {stuck_threshold:.0e}); "
             "check sensor calibration"
         )
 

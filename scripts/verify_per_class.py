@@ -51,7 +51,7 @@ def main() -> int:
     p.add_argument("--out", default="results/per_class_f1.json")
     args = p.parse_args()
 
-    from sklearn.metrics import precision_recall_fscore_support, f1_score
+    from sklearn.metrics import f1_score, precision_recall_fscore_support
 
     engine = InferenceEngine.from_checkpoint(args.checkpoint)
     _logger.info("Loaded %s checkpoint", engine.architecture_version)

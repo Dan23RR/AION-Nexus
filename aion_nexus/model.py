@@ -9,11 +9,11 @@ Total parameters: 1,061,724.
 from __future__ import annotations
 
 import logging
+
 import torch
 import torch.nn as nn
 
 from aion_nexus.config import NUM_CHANNELS, NUM_CLASSES, PENULTIMATE_FEATURE_DIM
-
 
 _logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ class AIONNexus(nn.Module):
                 nn.init.xavier_normal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)):
+            elif isinstance(m, nn.BatchNorm1d | nn.GroupNorm):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 

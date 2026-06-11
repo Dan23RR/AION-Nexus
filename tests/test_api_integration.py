@@ -15,9 +15,11 @@ import numpy as np
 import pytest
 import torch
 
-
-# Ensure no AION_CHECKPOINT env var influences server startup
+# Ensure no AION_* env vars from the outer shell influence server behavior
 os.environ.pop("AION_CHECKPOINT", None)
+os.environ.pop("AION_API_KEY", None)
+os.environ.pop("AION_MAX_BODY_BYTES", None)
+os.environ.pop("AION_CORS_ORIGINS", None)
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +65,27 @@ class TestHealthEndpoint:
         assert body["status"] in ("healthy", "degraded", "down")
         assert body["version"]
         assert body["model_param_count"] == 1_061_724
+
+    def test_health_includes_architecture_version(self, client):
+        body = client.get("/health").json()
+        assert body["architecture_version"] == "v1"
+
+    def test_health_architecture_version_v3_engine(self, client, app):
+        """A v3 engine injected into the app must surface its architecture via /health
+        and serve /predict (the server-side path for v3 checkpoints)."""
+        from aion_nexus import InferenceEngine, create_substrate_v3
+
+        saved = app.state.engine
+        try:
+            app.state.engine = InferenceEngine(
+                create_substrate_v3(), architecture_version="v3"
+            )
+            body = client.get("/health").json()
+            assert body["architecture_version"] == "v3"
+            sig = np.random.default_rng(0).standard_normal((2, 2560)).tolist()
+            assert client.post("/predict", json={"signal": sig}).status_code == 200
+        finally:
+            app.state.engine = saved
 
     def test_health_no_engine_returns_down(self, client, app):
         """Save engine, set None, verify down, restore — keeps fixture invariant."""
@@ -173,7 +196,7 @@ class TestPredictCsvEndpoint:
         rng = np.random.default_rng(7)
         # Build valid 6-column FEMTO CSV with non-stuck data
         rows = []
-        for i in range(2700):
+        for _ in range(2700):
             h = rng.standard_normal()
             v = rng.standard_normal()
             rows.append(f"0,0,0,0,{h:.6f},{v:.6f}")
@@ -187,7 +210,7 @@ class TestPredictCsvEndpoint:
         assert "predicted_class_name" in body
 
     def test_short_csv_returns_400(self, client):
-        rows = [f"0,0,0,0,0.5,0.3" for _ in range(100)]
+        rows = ["0,0,0,0,0.5,0.3" for _ in range(100)]
         csv_bytes = ("\n".join(rows)).encode()
         r = client.post(
             "/predict_csv",
@@ -239,6 +262,67 @@ class TestPredictLongSignal:
         # Either 400 (validation) or 500 (raised inside handler) is acceptable
         # — both signal "invalid input" to the client.
         assert r.status_code >= 400
+
+
+# ---- Security hardening ------------------------------------------------------
+
+class TestApiKey:
+    def test_401_without_key_when_set(self, client, monkeypatch):
+        monkeypatch.setenv("AION_API_KEY", "test-secret")
+        assert client.get("/version").status_code == 401
+        sig = np.random.default_rng(0).standard_normal((2, 2560)).tolist()
+        assert client.post("/predict", json={"signal": sig}).status_code == 401
+
+    def test_200_with_correct_key(self, client, monkeypatch):
+        monkeypatch.setenv("AION_API_KEY", "test-secret")
+        r = client.get("/version", headers={"X-API-Key": "test-secret"})
+        assert r.status_code == 200
+
+    def test_401_with_wrong_key(self, client, monkeypatch):
+        monkeypatch.setenv("AION_API_KEY", "test-secret")
+        r = client.get("/version", headers={"X-API-Key": "wrong"})
+        assert r.status_code == 401
+
+    def test_health_exempt_from_api_key(self, client, monkeypatch):
+        monkeypatch.setenv("AION_API_KEY", "test-secret")
+        assert client.get("/health").status_code == 200
+
+    def test_no_key_required_when_unset(self, client, monkeypatch):
+        monkeypatch.delenv("AION_API_KEY", raising=False)
+        assert client.get("/version").status_code == 200
+
+
+class TestBodySizeLimit:
+    def test_oversized_body_returns_413(self, client, monkeypatch):
+        monkeypatch.setenv("AION_MAX_BODY_BYTES", "1024")
+        sig = np.zeros((2, 2560)).tolist()  # JSON body far beyond 1 KiB
+        r = client.post("/predict", json={"signal": sig})
+        assert r.status_code == 413
+        assert "exceeds" in r.json()["detail"]
+
+    def test_body_within_limit_passes(self, client, monkeypatch):
+        monkeypatch.setenv("AION_MAX_BODY_BYTES", str(50 * 1024 * 1024))
+        sig = np.random.default_rng(0).standard_normal((2, 2560)).tolist()
+        assert client.post("/predict", json={"signal": sig}).status_code == 200
+
+
+# ---- Observability -----------------------------------------------------------
+
+class TestMetricsEndpoint:
+    def test_metrics_responds_and_counts_predictions(self, client):
+        sig = np.random.default_rng(0).standard_normal((2, 2560)).tolist()
+        assert client.post("/predict", json={"signal": sig}).status_code == 200
+        r = client.get("/metrics")
+        assert r.status_code == 200
+        assert "aion_predictions_total" in r.text
+
+    def test_request_id_header_present(self, client):
+        r = client.get("/health")
+        assert r.headers.get("x-request-id")
+
+    def test_request_id_propagated(self, client):
+        r = client.get("/health", headers={"X-Request-ID": "abc123"})
+        assert r.headers.get("x-request-id") == "abc123"
 
 
 # ---- Generic error handling -----------------------------------------------

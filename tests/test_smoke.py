@@ -11,15 +11,14 @@ import pytest
 import torch
 
 from aion_nexus import (
-    AIONNexus,
+    MODEL_PARAM_COUNT,
+    NUM_CHANNELS,
+    NUM_CLASSES,
+    SIGNAL_LENGTH,
+    InferenceEngine,
     create_aion_nexus,
     preprocess_signal,
     validate_signal,
-    NUM_CHANNELS,
-    SIGNAL_LENGTH,
-    NUM_CLASSES,
-    MODEL_PARAM_COUNT,
-    InferenceEngine,
 )
 from aion_nexus.preprocessing import SignalValidationError
 
@@ -41,7 +40,7 @@ def test_forward_pass_shape():
     assert out["features"].shape == (4, 512)
 
 
-def test_preprocess_accepts_2xN():
+def test_preprocess_accepts_2xn():
     sig = np.random.randn(NUM_CHANNELS, 3000).astype(np.float32)
     t = preprocess_signal(sig)
     assert t.shape == (1, NUM_CHANNELS, SIGNAL_LENGTH)
@@ -52,7 +51,7 @@ def test_preprocess_accepts_2xN():
     assert 0.5 < arr.std() < 1.5    # HP modifies std but stays in reasonable range
 
 
-def test_preprocess_accepts_Nx2_transpose():
+def test_preprocess_accepts_nx2_transpose():
     sig = np.random.randn(3000, NUM_CHANNELS).astype(np.float32)
     t = preprocess_signal(sig)
     assert t.shape == (1, NUM_CHANNELS, SIGNAL_LENGTH)
@@ -106,7 +105,7 @@ def test_predict_batch_consistent_with_predict():
     individual = [engine.predict(s) for s in sigs]
 
     assert len(batched) == 3
-    for b, i in zip(batched, individual):
+    for b, i in zip(batched, individual, strict=False):
         assert b.predicted_class_index == i.predicted_class_index
         for cls, p in b.probabilities.items():
             assert p == pytest.approx(i.probabilities[cls], abs=1e-5)

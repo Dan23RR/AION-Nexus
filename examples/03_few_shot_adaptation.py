@@ -68,7 +68,7 @@ def main() -> int:
     test_sig = target_sigs[0]
     result = adapted_engine.predict(test_sig)
     print()
-    print(f"Sanity prediction on first target sample:")
+    print("Sanity prediction on first target sample:")
     print(f"  predicted: {result.predicted_class_name}  confidence: {result.confidence:.3f}")
     return 0
 

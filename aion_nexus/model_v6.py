@@ -28,10 +28,9 @@ import torch
 import torch.nn as nn
 
 from aion_nexus.config import NUM_CHANNELS, NUM_CLASSES
-from aion_nexus.model import MultiScaleTemporalCNN, AttentionFusion
-from aion_nexus.temporal_attention import TemporalSelfAttention
+from aion_nexus.model import AttentionFusion, MultiScaleTemporalCNN
 from aion_nexus.recursive_reasoner import TinyRecursiveReasoner
-
+from aion_nexus.temporal_attention import TemporalSelfAttention
 
 _logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ class AIONNexusV6(nn.Module):
                 nn.init.xavier_normal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, (nn.BatchNorm1d, nn.LayerNorm, nn.GroupNorm)):
+            elif isinstance(m, nn.BatchNorm1d | nn.LayerNorm | nn.GroupNorm):
                 if m.weight is not None:
                     nn.init.constant_(m.weight, 1)
                 if m.bias is not None:
@@ -99,9 +98,9 @@ class AIONNexusV6(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        N_supervision: int = 1,
+        N_supervision: int = 1,    # noqa: N803 — public API kwarg, mirrors TRM paper notation
         n_reasoning: int = 6,
-        T_recursions: int = 3,
+        T_recursions: int = 3,     # noqa: N803 — public API kwarg, mirrors TRM paper notation
         rpm=None,
         geometry=None,
     ) -> dict:

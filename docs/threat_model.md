@@ -1,6 +1,6 @@
-# Threat Model — AION-NEXUS v1.0
+# Threat Model — AION-NEXUS
 
-STRIDE-based threat analysis of the AION-NEXUS deployment. Authored from a Siemens / industrial OT engineer's perspective.
+STRIDE-based threat analysis of the AION-NEXUS deployment. Authored from a Siemens / industrial OT engineer's perspective. Originally written for v1.0; mitigation status updated for 2.2.0 (2026-06-11).
 
 ---
 
@@ -37,7 +37,7 @@ Trust boundaries:
 
 | Threat | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Attacker spoofs sensor data to trigger false alarm | Medium | Low–Medium | Auth at reverse proxy (mTLS / API key); signal validation rejects malformed data |
+| Attacker spoofs sensor data to trigger false alarm | Medium | Low–Medium | In-app `AION_API_KEY` (X-API-Key, since 2.2.0) and/or auth at reverse proxy (mTLS); signal validation rejects malformed data |
 | Attacker spoofs OPC UA client to inject prediction | Low | Medium | OPC UA security policies (Sign + Encrypt with X.509 certs) — operator config |
 | Compromised checkpoint replaces production model | Low | High | SHA-256 verification; signed releases; immutable container |
 
@@ -46,7 +46,7 @@ Trust boundaries:
 | Threat | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Tampering with input signal in transit | Medium | Low | TLS at reverse proxy; signature on signed payloads optional |
-| Tampering with checkpoint file at rest | Low | High | Read-only volume; SHA-256 verified at startup (TODO: add hash check in `from_checkpoint`) |
+| Tampering with checkpoint file at rest | Low | High | Read-only volume; opt-in `expected_sha256` check at load time (`from_checkpoint`, since 2.2.0) |
 | Tampering with response in transit | Low | Low–Medium | TLS at reverse proxy |
 | Memory corruption attack against PyTorch | Very Low | High | Container isolation; non-root user; bounded request size |
 
@@ -69,7 +69,7 @@ Trust boundaries:
 
 | Threat | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Huge payload DoS | High | Low | FastAPI request size limit (10 MB default); reverse proxy rate limit |
+| Huge payload DoS | High | Low | In-app body cap `AION_MAX_BODY_BYTES` (default 10 MB → `413`, since 2.2.0); reverse proxy rate limit |
 | Computational DoS via repeated `/predict_long_signal` with massive signals | Medium | Medium | Bound `n_windows` to e.g., 1000 in `/predict_long_signal` |
 | Slowloris attack | Low | Low | Reverse proxy timeout |
 | Resource exhaustion (memory, file descriptors) | Low | Low | Container resource limits (in `docker-compose.yml`) |
@@ -80,15 +80,23 @@ Trust boundaries:
 | Threat | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Container escape → host root | Low | Critical | Non-root user `aion`; minimal base image; no `--privileged` flag |
-| Pickle deserialization attack via checkpoint | Medium | Critical | Use `weights_only=True` if Torch ≥ 1.13 (TODO: verify enforcement); only accept checkpoints from trusted source |
+| Pickle deserialization attack via checkpoint | Medium | Critical | `weights_only=True` is the default load path (v1/v6 since 2.0; v3 substrate loader since 2.2.0); unsafe fallback requires explicit opt-in. Only accept checkpoints from trusted sources |
 | Code injection via uploaded file | Low | Critical | `validate_signal` parses CSV with `np.loadtxt` (no `eval`); no shell exec on filenames |
 
-### Critical mitigation gaps to fix in v1.1
+### Critical mitigation gaps — status (updated 2026-06-11)
 
-- [ ] Enforce `torch.load(..., weights_only=True)` in `InferenceEngine.from_checkpoint` (v1.0 currently uses `weights_only=False` for backward compat with old training script outputs; should add explicit deprecation path).
-- [ ] Add SHA-256 verification of checkpoint at load time (currently unchecked).
-- [ ] Add audit-log hook for prediction calls (structured JSON to stdout / configurable sink).
-- [ ] Cap `/predict_long_signal` `n_windows` to prevent memory exhaustion.
+- [x] **DONE (2.0)** — `torch.load(..., weights_only=True)` is the default in
+  `InferenceEngine.from_checkpoint`; the unsafe `weights_only=False` path requires an
+  explicit opt-in flag. The v3 substrate loader got the same hardening in 2.2.0.
+  (An earlier revision of this document claimed v1.0 used `weights_only=False` by default —
+  that is no longer the shipped behavior.)
+- [x] **DONE (2.2.0)** — SHA-256 verification of the checkpoint at load time via the opt-in
+  `expected_sha256` argument (load refused on mismatch).
+- [x] **DONE (2.2.0)** — structured JSON logging with per-request `request_id`
+  (`AION_LOG_JSON=1`), usable as the audit-log sink to stdout.
+- [ ] Cap `/predict_long_signal` `n_windows` to prevent memory exhaustion (the in-app
+  `AION_MAX_BODY_BYTES` cap bounds the practical signal size since 2.2.0, but an explicit
+  window cap is still open).
 
 ---
 

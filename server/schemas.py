@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -26,6 +27,7 @@ class BatchPredictResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["healthy", "degraded", "down"]
     version: str
+    architecture_version: str
     device: str
     model_param_count: int
     inference_count: int

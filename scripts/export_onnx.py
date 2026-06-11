@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-from aion_nexus import InferenceEngine, NUM_CHANNELS, SIGNAL_LENGTH
+from aion_nexus import NUM_CHANNELS, SIGNAL_LENGTH, InferenceEngine
 
 
 def main() -> int:
@@ -35,7 +35,9 @@ def main() -> int:
 
     # Wrap to flatten the dict output: ONNX Runtime expects tensor(s)
     class _OnnxWrapper(torch.nn.Module):
-        def __init__(self, m): super().__init__(); self.m = m
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
         def forward(self, x):
             o = self.m(x)
             return o["logits"], o["features"]

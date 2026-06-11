@@ -17,8 +17,6 @@ Frozen for v2.0:
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 import torch
 import torch.nn as nn
 
@@ -64,7 +62,7 @@ class TinyRecursiveReasoner(nn.Module):
         y: torch.Tensor,
         z: torch.Tensor,
         n: int = 6,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         for _ in range(n):
             combined = torch.cat([features, y, z], dim=1)
             z = self.reasoning_net(combined)
@@ -74,10 +72,10 @@ class TinyRecursiveReasoner(nn.Module):
     def forward(
         self,
         features: torch.Tensor,
-        y_init: Optional[torch.Tensor] = None,
-        z_init: Optional[torch.Tensor] = None,
+        y_init: torch.Tensor | None = None,
+        z_init: torch.Tensor | None = None,
         n: int = 6,
-        T: int = 3,
+        T: int = 3,  # noqa: N803 — public API kwarg, mirrors TRM paper notation
         train_mode: bool = True,
     ) -> dict:
         b = features.size(0)

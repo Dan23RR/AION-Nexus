@@ -8,7 +8,6 @@ import numpy as np
 
 from aion_nexus.config import NUM_CHANNELS, SIGNAL_LENGTH
 
-
 _logger = logging.getLogger(__name__)
 
 

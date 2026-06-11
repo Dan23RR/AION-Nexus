@@ -34,7 +34,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 _logger = logging.getLogger("aion_nexus.verify")
 
 
@@ -53,7 +52,7 @@ def f1_macro(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int = 4) -> fl
 
 def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int = 4) -> list[list[int]]:
     cm = [[0] * num_classes for _ in range(num_classes)]
-    for t, p in zip(y_true, y_pred):
+    for t, p in zip(y_true, y_pred, strict=False):
         cm[int(t)][int(p)] += 1
     return cm
 
@@ -109,7 +108,7 @@ def evaluate_via_original_loader(engine, aion_data_repo: Path,
     _logger.info("Inference on %d test samples (using already-preprocessed dataset signals)...",
                  len(test_signals_pre))
     preds = []
-    BATCH = 64
+    BATCH = 64  # noqa: N806 — constant-style local, intentional
     with torch.no_grad():
         for i in range(0, len(test_signals_pre), BATCH):
             x = torch.stack(test_signals_pre[i:i + BATCH], dim=0)
@@ -207,7 +206,7 @@ def load_signal_csv_original(path: str | Path):
             return None
 
         # Resize to 2560
-        L = 2560
+        L = 2560  # noqa: N806 — constant-style local, intentional
         if len(h) != L:
             if len(h) > L:
                 h, v = h[:L], v[:L]
@@ -243,7 +242,6 @@ def evaluate_femto_native(engine, femto_root: Path, max_samples: int | None = No
     Scans Validation_Set subdirectories (not training) and derives labels from
     degradation_pct = file_idx / (total_files - 1).
     """
-    import pandas as pd
 
     sigs, labs = [], []
 
@@ -428,14 +426,14 @@ def main() -> int:
     # Published numbers depend on architecture version
     arch = summary["diagnostics"].get("architecture_version", "v1")
     if arch == "v6":
-        PUBLISHED = {
+        PUBLISHED = {  # noqa: N806 — constant-style local, intentional
             "A_original_loader": {"f1": 0.9343, "tol": 0.01,
                                    "label": "FEMTO test (training split, v6 ULTRA)"},
             "MFPT_zero_shot":    {"f1": 0.615, "tol": 0.02,
                                    "label": "MFPT zero-shot"},
         }
     else:
-        PUBLISHED = {
+        PUBLISHED = {  # noqa: N806 — constant-style local, intentional
             "A_original_loader": {"f1": 0.884, "tol": 0.01,
                                    "label": "FEMTO test (training split, v1)"},
             "MFPT_zero_shot":    {"f1": 0.615, "tol": 0.02,

@@ -10,7 +10,7 @@ import time
 
 import numpy as np
 
-from aion_nexus import InferenceEngine, NUM_CHANNELS, SIGNAL_LENGTH
+from aion_nexus import NUM_CHANNELS, SIGNAL_LENGTH, InferenceEngine
 from aion_nexus.model import create_aion_nexus
 
 
@@ -57,7 +57,7 @@ def main() -> int:
     mean = statistics.mean(latencies)
     throughput = (args.batch_size * 1000) / mean
 
-    print(f"AION-NEXUS inference benchmark")
+    print("AION-NEXUS inference benchmark")
     print(f"  device:        {args.device}")
     print(f"  batch_size:    {args.batch_size}")
     print(f"  iterations:    {args.n_iter}  (warmup: {args.n_warmup})")

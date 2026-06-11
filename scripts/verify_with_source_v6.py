@@ -21,7 +21,6 @@ from pathlib import Path
 import numpy as np
 import torch
 
-
 _logger = logging.getLogger(__name__)
 
 
@@ -55,8 +54,8 @@ def main() -> int:
         return 2
 
     sys.path.insert(0, str(repo))
-    from aion_nexus_v6 import create_aion_nexus_v6 as create_source_v6
     from aion_data import AIONDataset, TemporalConfig, create_stratified_temporal_splits
+    from aion_nexus_v6 import create_aion_nexus_v6 as create_source_v6
 
     _logger.info("Creating SOURCE v6 model (not the production-package port)...")
     model = create_source_v6(num_classes=4)
@@ -85,7 +84,7 @@ def main() -> int:
 
     _logger.info("Running inference with SOURCE model...")
     preds = []
-    BATCH = 64
+    BATCH = 64  # noqa: N806 — constant-style local, intentional
     with torch.no_grad():
         for i in range(0, len(signals), BATCH):
             x = torch.stack(signals[i:i + BATCH], dim=0)
@@ -99,10 +98,10 @@ def main() -> int:
 
     print()
     print("=" * 70)
-    print(f"SOURCE V6 model verification:")
+    print("SOURCE V6 model verification:")
     print(f"  F1 macro:  {f1:.4f}")
     print(f"  Accuracy:  {acc:.4f}")
-    print(f"  Published: 0.9343")
+    print("  Published: 0.9343")
     print(f"  Delta:     {abs(f1 - 0.9343):.4f}")
     print("=" * 70)
     if f1 > 0.85:

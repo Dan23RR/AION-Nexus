@@ -14,7 +14,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 # Whitelist: only these license families are compatible with Apache 2.0 redistribution
 LICENSE_ALLOWLIST = {
     "Apache-2.0", "Apache 2.0", "Apache Software License",
@@ -105,12 +104,12 @@ def check_license_compatibility(strict: bool = False) -> int:
 
     if blocked:
         print(f"  BLOCKED licenses ({len(blocked)}):")
-        for n, l in blocked:
-            print(f"    {n} → {l}")
+        for pkg, pkg_lic in blocked:
+            print(f"    {pkg} → {pkg_lic}")
     if unknown:
         print(f"  UNKNOWN/UNCLASSIFIED licenses ({len(unknown)}):")
-        for n, l in unknown[:20]:
-            print(f"    {n} → {l}")
+        for pkg, pkg_lic in unknown[:20]:
+            print(f"    {pkg} → {pkg_lic}")
 
     return len(blocked) + (len(unknown) if strict else 0)
 

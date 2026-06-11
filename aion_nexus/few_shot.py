@@ -10,17 +10,16 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812 — standard PyTorch convention
 
 from aion_nexus.inference import InferenceEngine
 from aion_nexus.preprocessing import preprocess_batch
 from aion_nexus.version import __version__
-
 
 _logger = logging.getLogger(__name__)
 
@@ -28,22 +27,25 @@ _logger = logging.getLogger(__name__)
 # Which submodule is the trainable "head" that few-shot adaptation fine-tunes,
 # per architecture. The encoder (everything else) stays frozen. v1's MLP head is
 # `classifier.*`; v6's reasoning head that maps features -> logits is
-# `recursive_reasoner.*`. Filtering the wrong prefix freezes 100% of parameters,
+# `recursive_reasoner.*`; v3's (PatchTST substrate) linear few-shot head is
+# `head.*`. Filtering the wrong prefix freezes 100% of parameters,
 # which makes adaptation a silent no-op AND crashes the optimizer with an empty
 # parameter list. _freeze_encoder() guards against exactly that.
 _HEAD_PREFIXES: dict[str, tuple[str, ...]] = {
     "v1": ("classifier.",),
     "v6": ("recursive_reasoner.",),
+    "v3": ("head.",),
 }
 
 
 class FewShotAdapter:
     """Fine-tune only the classifier/reasoning head on a small target-domain dataset.
 
-    Supports both architectures: v1 (BiGRU + MLP ``classifier`` head) and v6
-    (TemporalSelfAttention + ``recursive_reasoner`` head). The head to unfreeze is
-    selected from the source engine's ``architecture_version`` — passing the wrong
-    one would freeze every parameter and make adaptation a no-op, so it is checked.
+    Supports all three architectures: v1 (BiGRU + MLP ``classifier`` head), v6
+    (TemporalSelfAttention + ``recursive_reasoner`` head) and v3 (PatchTST
+    substrate + linear ``head``). The head to unfreeze is selected from the source
+    engine's ``architecture_version`` — passing the wrong one would freeze every
+    parameter and make adaptation a no-op, so it is checked.
 
     Usage:
         engine = InferenceEngine.from_checkpoint("checkpoints/aion_nexus_v1.pth")
@@ -145,7 +147,8 @@ class FewShotAdapter:
 
     def to_engine(self) -> InferenceEngine:
         """Wrap the adapted model into an InferenceEngine for serving."""
-        return InferenceEngine(self.model, device=self.device)
+        return InferenceEngine(self.model, device=self.device,
+                               architecture_version=self.architecture_version)
 
     def save(self, path: str | Path) -> None:
         """Save adapted model state-dict (compatible with from_checkpoint)."""

@@ -10,26 +10,25 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from dataclasses import dataclass, asdict
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import torch
 
 from aion_nexus.config import (
-    CLASS_NAMES,
-    CLASS_DESCRIPTIONS,
     CLASS_ACTIONS,
-    LOW_CONFIDENCE_THRESHOLD,
+    CLASS_DESCRIPTIONS,
+    CLASS_NAMES,
     HIGH_CONFIDENCE_THRESHOLD,
+    LOW_CONFIDENCE_THRESHOLD,
     NUM_CLASSES,
 )
-from aion_nexus.model import AIONNexus, create_aion_nexus
-from aion_nexus.model_v6 import AIONNexusV6, create_aion_nexus_v6
-from aion_nexus.preprocessing import preprocess_signal, preprocess_batch
+from aion_nexus.model import create_aion_nexus
+from aion_nexus.model_v6 import create_aion_nexus_v6
+from aion_nexus.preprocessing import preprocess_batch, preprocess_signal
 from aion_nexus.version import __version__
-
 
 _logger = logging.getLogger(__name__)
 
@@ -78,12 +77,17 @@ class InferenceEngine:
 
     @staticmethod
     def detect_architecture(state_dict: dict) -> str:
-        """Inspect state_dict keys to determine v1 vs v6 architecture.
+        """Inspect state_dict keys to determine v1 / v6 / v3 architecture.
 
         v1 has `temporal_encoder.gru.*` (BiGRU) and `classifier.classifier.*` (MLP).
         v6 has `temporal_attention.mha.*` and `recursive_reasoner.reasoning_net.*`.
+        v3 (PatchTST substrate) comes in two forms:
+          - full model state dict: `encoder.proj.*` / `encoder.tr.*` (+ `head.*`
+            when a few-shot head has been trained, e.g. `FewShotAdapter.save`);
+          - raw pretrained substrate checkpoint: a nested dict under the
+            `encoder` key (with `proj.*` / `tr.*` inside) plus `cfg`/`objective`.
 
-        Returns "v1" or "v6". Raises ValueError if neither pattern matches.
+        Returns "v1", "v6" or "v3". Raises ValueError if no pattern matches.
         """
         keys = list(state_dict.keys())
         has_gru = any(k.startswith("temporal_encoder.gru") for k in keys)
@@ -93,9 +97,17 @@ class InferenceEngine:
             return "v1"
         if has_mha and has_trm:
             return "v6"
+        # v3 full-model state dict (encoder.* flattened tensors)
+        if any(k.startswith(("encoder.proj.", "encoder.tr.")) for k in keys):
+            return "v3"
+        # v3 raw substrate checkpoint ({'encoder': {...}, 'cfg': ..., 'objective': ...})
+        enc = state_dict.get("encoder")
+        if isinstance(enc, dict) and any(k.startswith(("proj.", "tr.")) for k in enc):
+            return "v3"
         raise ValueError(
             "Unrecognized checkpoint architecture. Keys do not match v1 "
-            "(BiGRU + classifier) or v6 (TemporalSelfAttention + TRM). "
+            "(BiGRU + classifier), v6 (TemporalSelfAttention + TRM) or v3 "
+            "(PatchTST substrate encoder). "
             f"First 10 keys: {keys[:10]}"
         )
 
@@ -109,7 +121,7 @@ class InferenceEngine:
         version: str | None = None,
         expected_sha256: str | None = None,
         allow_unsafe: bool = False,
-    ) -> "InferenceEngine":
+    ) -> InferenceEngine:
         """Load a saved checkpoint and instantiate an inference engine.
 
         Args:
@@ -178,10 +190,21 @@ class InferenceEngine:
         if version is None:
             version = cls.detect_architecture(state_dict)
             _logger.info("Auto-detected architecture: %s", version)
-        elif version not in ("v1", "v6"):
-            raise ValueError(f"Unknown version: {version!r}; must be 'v1' or 'v6'")
+        elif version not in ("v1", "v6", "v3"):
+            raise ValueError(f"Unknown version: {version!r}; must be 'v1', 'v6' or 'v3'")
         else:
             _logger.info("Forced architecture: %s", version)
+
+        if version == "v3":
+            # v3 substrate: a full model state dict (trained few-shot head) is
+            # rebuilt and served like any other architecture. A raw pretrained
+            # ENCODER-only checkpoint is refused with an actionable error —
+            # serving it would emit predictions from an untrained head (the
+            # server then starts in degraded mode and reports this via /health).
+            from aion_nexus.substrate_v3 import v3_from_model_state_dict
+            model = v3_from_model_state_dict(state_dict)
+            _logger.info("Checkpoint loaded successfully (v3 architecture)")
+            return cls(model=model, device=device, architecture_version="v3")
 
         if version == "v1":
             model = create_aion_nexus(num_classes=num_classes)
@@ -275,7 +298,7 @@ class InferenceEngine:
 
     @torch.no_grad()
     def extract_features(self, signal: np.ndarray) -> np.ndarray:
-        """Return the penultimate feature vector (512-dim on v1, 128-dim on v6)."""
+        """Return the penultimate feature vector (512-dim on v1, 128-dim on v6, 192-dim on v3)."""
         x = preprocess_signal(signal).to(self.device)
         out = self.model(x)
         return out["features"].cpu().numpy()[0]

@@ -11,3 +11,4 @@ fastapi>=0.110.0,<1.0.0
 uvicorn[standard]>=0.27.0,<1.0.0
 pydantic>=2.0.0,<3.0.0
 python-multipart>=0.0.9
+prometheus-client>=0.20.0,<1.0.0   # /metrics endpoint (Prometheus exposition format)

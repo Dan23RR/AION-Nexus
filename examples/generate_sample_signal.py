@@ -13,6 +13,7 @@ This is for plumbing tests only, not a realistic fault signal.
 from __future__ import annotations
 
 from pathlib import Path
+
 import numpy as np
 
 

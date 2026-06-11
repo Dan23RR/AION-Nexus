@@ -13,11 +13,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
-
 
 # Files included in manifest (everything that defines behavior + docs)
 INCLUDE_PATTERNS = [
@@ -138,7 +136,7 @@ def check_manifest(entries_now: list[dict], manifest_path: Path) -> int:
         return 0
 
     print(f"DIFFERENCES ({len(diffs)}):")
-    for kind, path, sha in diffs:
+    for kind, path, _sha in diffs:
         print(f"  {kind:10s}  {path}")
     return 1
 

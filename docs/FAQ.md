@@ -32,7 +32,7 @@ Expected. The model was trained on FEMTO. On a different dataset:
 
 ### Q5. How do you compute Cohen's d?
 
-Pooled standard deviation. See `aion_nexus.utils.cohens_d` reference implementation. `d = (mean(A) - mean(B)) / sqrt((var(A) + var(B)) / 2)`. For lower-is-better metrics (NRMSE), negate the sign.
+Pooled standard deviation: `d = (mean(A) - mean(B)) / sqrt((var(A) + var(B)) / 2)`. For lower-is-better metrics (NRMSE), negate the sign. Note: this package does not ship a `cohens_d` helper (an earlier revision of this FAQ pointed to `aion_nexus.utils.cohens_d`, which does not exist) — compute it with the one-line formula above or `scipy`/`numpy` directly.
 
 ---
 

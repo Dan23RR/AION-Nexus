@@ -22,26 +22,29 @@ Two architecture versions supported, both verified against published numbers:
 `InferenceEngine.from_checkpoint()` auto-detects the architecture from the
 checkpoint's state_dict keys; no flag required for the common case.
 """
-from aion_nexus.version import __version__
+from aion_nexus.config import (
+    CLASS_DESCRIPTIONS,
+    CLASS_NAMES,
+    MODEL_PARAM_COUNT,
+    NUM_CHANNELS,
+    NUM_CLASSES,
+    SAMPLING_RATE_HZ,
+    SIGNAL_LENGTH,
+)
+from aion_nexus.few_shot import FewShotAdapter
+from aion_nexus.inference import InferenceEngine, PredictionResult
 from aion_nexus.model import AIONNexus, create_aion_nexus
-from aion_nexus.model_v6 import AIONNexusV6, create_aion_nexus_v6, V6_PARAM_COUNT_4CLASS
+from aion_nexus.model_v6 import V6_PARAM_COUNT_4CLASS, AIONNexusV6, create_aion_nexus_v6
+from aion_nexus.preprocessing import preprocess_signal, validate_signal
+from aion_nexus.recursive_reasoner import TinyRecursiveReasoner
 from aion_nexus.substrate_v3 import (
-    AIONNexusV3, SubstrateEncoderV3, create_substrate_v3, V3_ENCODER_PARAM_COUNT,
+    V3_ENCODER_PARAM_COUNT,
+    AIONNexusV3,
+    SubstrateEncoderV3,
+    create_substrate_v3,
 )
 from aion_nexus.temporal_attention import TemporalSelfAttention
-from aion_nexus.recursive_reasoner import TinyRecursiveReasoner
-from aion_nexus.preprocessing import preprocess_signal, validate_signal
-from aion_nexus.inference import InferenceEngine, PredictionResult
-from aion_nexus.few_shot import FewShotAdapter
-from aion_nexus.config import (
-    CLASS_NAMES,
-    CLASS_DESCRIPTIONS,
-    NUM_CLASSES,
-    SIGNAL_LENGTH,
-    NUM_CHANNELS,
-    SAMPLING_RATE_HZ,
-    MODEL_PARAM_COUNT,
-)
+from aion_nexus.version import __version__
 
 __all__ = [
     "__version__",

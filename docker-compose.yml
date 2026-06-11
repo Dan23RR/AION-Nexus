@@ -1,9 +1,7 @@
-version: "3.9"
-
 services:
   aion-nexus:
     build: .
-    image: aion-nexus:1.0.0
+    image: aion-nexus:2.2.0
     container_name: aion-nexus
     restart: unless-stopped
     ports:
@@ -11,6 +9,11 @@ services:
     environment:
       AION_DEVICE: cpu
       AION_CHECKPOINT: /app/checkpoints/aion_nexus_v1.pth
+      # Optional hardening (see docs/api_reference.md):
+      # AION_API_KEY: change-me            # enables X-API-Key auth (/health stays open)
+      # AION_MAX_BODY_BYTES: "10485760"    # request body cap, default 10 MB -> 413
+      # AION_CORS_ORIGINS: ""              # comma-separated allowed origins (default: no CORS)
+      # AION_LOG_JSON: "1"                 # structured JSON logs with request_id
     volumes:
       - ./checkpoints:/app/checkpoints:ro
     healthcheck:

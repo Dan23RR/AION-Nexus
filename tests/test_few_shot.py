@@ -4,11 +4,11 @@ import pytest
 import torch
 
 from aion_nexus import (
-    InferenceEngine,
-    FewShotAdapter,
-    create_aion_nexus,
     NUM_CHANNELS,
     SIGNAL_LENGTH,
+    FewShotAdapter,
+    InferenceEngine,
+    create_aion_nexus,
 )
 
 
@@ -122,7 +122,7 @@ def test_v6_adapt_actually_updates_head_weights():
     after = [p.detach().clone() for p in adapter.model.parameters() if p.requires_grad]
 
     assert len(history["epoch_losses"]) == 5
-    moved = any(not torch.allclose(a, b) for a, b in zip(before, after))
+    moved = any(not torch.allclose(a, b) for a, b in zip(before, after, strict=False))
     assert moved, "v6 few-shot did not update any weights (no-op bug regression)"
 
 

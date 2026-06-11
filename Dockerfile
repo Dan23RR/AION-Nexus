@@ -1,8 +1,13 @@
 # AION-NEXUS production container
-# Build: docker build -t aion-nexus:1.0.0 .
-# Run:   docker run -p 8080:8080 -v $(pwd)/checkpoints:/app/checkpoints aion-nexus:1.0.0
+# Build: docker build -t aion-nexus:2.2.0 .
+# Run:   docker run -p 8080:8080 -v $(pwd)/checkpoints:/app/checkpoints aion-nexus:2.2.0
 
 FROM python:3.11-slim AS base
+
+LABEL org.opencontainers.image.title="aion-nexus" \
+      org.opencontainers.image.version="2.2.0" \
+      org.opencontainers.image.description="Bearing-fault diagnosis from raw vibration signals (CPU inference)" \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 # Install minimal system deps for numpy/torch wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,9 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd --create-home --shell /bin/bash aion
 WORKDIR /app
 
-# Install Python dependencies first (better layer caching)
+# Install Python dependencies first (better layer caching).
+# torch is installed from the CPU wheel index first: the default PyPI wheel
+# bundles CUDA libraries (several GB); the CPU image stays slim.
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
  && pip install --no-cache-dir -r requirements.txt
 
 # Copy code

@@ -4,6 +4,57 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-06-11 (Enterprise hardening)
+
+### Security
+- **Substrate v3 checkpoint loader hardened**: `torch.load(..., weights_only=True)` is now the
+  default load path, with an optional `expected_sha256` integrity check before deserialization.
+  Closes the threat-model gap tracked in `docs/threat_model.md` ("Critical mitigation gaps").
+- **Server authentication**: optional `AION_API_KEY` env var enables `X-API-Key` header auth on
+  all endpoints (`/health` stays exempt for orchestrator liveness probes).
+- **Request body size limit**: `AION_MAX_BODY_BYTES` (default 10 MB) — oversized requests are
+  rejected with `413` before parsing. Makes the long-standing SECURITY.md claim enforceable in
+  the app itself, not only at the reverse proxy.
+- **CORS**: `AION_CORS_ORIGINS` (comma-separated allowlist). Default: no CORS headers at all.
+
+### Added
+- **v3 substrate servable**: `detect_architecture` now recognizes v3 checkpoints; few-shot
+  tooling works against the frozen v3 encoder.
+- **`/metrics` endpoint** (Prometheus exposition format) — request counts and latency; depends
+  on `prometheus-client` (added to `requirements.txt`).
+- **Structured JSON logging**: `AION_LOG_JSON=1` switches logs to JSON with a per-request
+  `request_id`.
+- `HealthResponse` now includes `architecture_version`.
+- `docs/reproduce.md` — honest, minimal reproduction guide for the published F1 = 0.884
+  (including the globally-stratified-split caveat).
+
+### Changed
+- FastAPI startup migrated from deprecated `on_event` hooks to the `lifespan` context manager.
+- Package version → **2.2.0** (`aion_nexus/version.py` single source of truth).
+
+### Packaging / CI
+- `pyproject.toml`: console entry points fixed (`scripts/` is now a real package included in
+  `packages.find`); `py.typed` marker shipped (`Typing :: Typed` classifier +
+  `[tool.setuptools.package-data]`); absolute `[project.urls]`; coverage config with
+  `fail_under = 70`.
+- Dockerfile: torch installed from the CPU wheel index (`download.pytorch.org/whl/cpu`) —
+  slim CPU image; OCI version labels 2.2.0. `docker-compose.yml`: obsolete `version:` key
+  removed, image tag aligned to 2.2.0.
+- CI: coverage gate (`--cov-fail-under=70`), weekly scheduled supply-chain audit job
+  (`scripts/audit_supply_chain.py` + `pip-audit` — makes the SECURITY.md "weekly in CI" claim
+  true), `python -m build` + `twine check dist/*` job, container smoke test (`docker run` +
+  `curl /health`) after the Docker build.
+
+### Documentation reconciliation
+- MODEL_CARD / PERFORMANCE_BENCHMARKS / INDEX / README / docs aligned to 2.2.0 and to the
+  verified numbers only: v6 "+5.0 pp" advantage row caveated (not a valid head-to-head, see
+  §6.31 disclosure); sample-efficiency 10-shot point reconciled to the verified 0.672 ± 0.006;
+  cost figures and SOTA/latency tables explicitly labeled as estimates / literature-reported
+  where no artifact exists in `results/`; cross-dataset 0.91–1.00 claim qualified inline as
+  binary health (2-class) vs a weak random-init control; `FewShotAdapter` quickstart fixed to
+  the real signature `FewShotAdapter(engine)`; FAQ pointer to non-existent
+  `aion_nexus.utils.cohens_d` corrected.
+
 ## [2.1.0] — 2026-06-04 (v3 self-supervised substrate foundation backbone)
 
 ### Added
@@ -20,8 +71,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - v3 is NOT a higher in-distribution classifier — v1 FEMTO F1=0.884 stands; v3 full-transfer
   to unseen machines ≈ 0.55.
 - v3's value = cross-domain FEW-SHOT: 10-shot LOBO FEMTO severity F1 ≈ 0.78; **cross-DATASET
-  10-shot binary-health macro-F1 0.91–1.00** (FEMTO↔MFPT↔CWRU) vs random-init 0.5–0.8.
-  Zero-shot cross-rig is NOT reliable.
+  10-shot macro-F1 0.91–1.00** (FEMTO↔MFPT↔CWRU) — **binary health (2-class) task, vs a weak
+  random-init control** (random-init 0.5–0.8). Zero-shot cross-rig is NOT reliable.
 - Scaled run (9,315 windows / 400 epochs, Colab T4): 10-shot 0.760→0.783, full-transfer
   0.554→0.533 — **within noise** → the encoder is **architecture-saturated** at
   d_model 192/depth 4. Promoted (drop-in) as the production v3 checkpoint. The real next
@@ -176,10 +227,12 @@ When v6 (trained on Learning_set) is evaluated on the industrial Test_set 11 bea
 
 ## Roadmap (future)
 
-> Current released version is **2.1.0** (see above). The items below are post-2.1 plans.
+> Current released version is **2.2.0** (see above). The items below are post-2.2 plans.
+> (2.2.0 shipped as enterprise hardening; the multi-task-heads item previously slated for
+> 2.2.0 moves to 2.3.0, streaming to 2.4.0.)
 
 - ✅ 2.1.0: Multi-domain pre-training — DONE, realized as the v3 self-supervised substrate (FEMTO+MFPT+CWRU; Paderborn/NASA-IMS to be added in the scaled run).
 - v3.1 (bigger arch d_model 256/depth 6 + hybrid masked⊕contrastive): **TESTED 2026-06-04, FAILED** — LOBO 10-shot 0.801 (+0.018 vs v3, within noise), full-transfer down → architecture is NOT the lever on the current 3-rig data; not promoted (v3 stays). The production module is arch-flexible (`AIONNexusV3.from_checkpoint`) for a future data-driven v3.2. See `AION_NEXUS_RD/aion2_verified_substrate/foundation/RETRACTION_substrate_v31.md`.
 - **Next real lever = DATA diversity**: add Paderborn (KAt-DataCenter) + NASA-IMS rigs to the unlabeled pretraining corpus, re-pretrain at the v3 architecture.
-- 2.2.0: Multi-task heads (severity + location simultaneously).
-- 2.3.0: Streaming inference engine (online sequential decisions).
+- 2.3.0: Multi-task heads (severity + location simultaneously).
+- 2.4.0: Streaming inference engine (online sequential decisions).

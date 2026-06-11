@@ -32,7 +32,6 @@ from statistics import mean, stdev
 
 import numpy as np
 
-
 _logger = logging.getLogger("aion_nexus.per_bearing")
 
 
@@ -67,7 +66,7 @@ def load_signal_csv(path: Path) -> np.ndarray | None:
             return None
         if np.isnan(h).sum() > len(h) * 0.1:
             return None
-        L = 2560
+        L = 2560  # noqa: N806 — constant-style local, intentional
         if len(h) != L:
             if len(h) > L:
                 h, v = h[:L], v[:L]

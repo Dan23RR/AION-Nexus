@@ -10,8 +10,11 @@ import pytest
 import torch
 
 from aion_nexus import (
-    create_aion_nexus, InferenceEngine,
-    NUM_CHANNELS, SIGNAL_LENGTH, NUM_CLASSES,
+    NUM_CHANNELS,
+    NUM_CLASSES,
+    SIGNAL_LENGTH,
+    InferenceEngine,
+    create_aion_nexus,
 )
 
 
@@ -75,7 +78,7 @@ class TestDeterminism:
         single = [engine.predict(s) for s in sigs]
         batched = engine.predict_batch(sigs)
 
-        for s, b in zip(single, batched):
+        for s, b in zip(single, batched, strict=False):
             assert s.predicted_class_index == b.predicted_class_index
             for cls in s.probabilities:
                 assert s.probabilities[cls] == pytest.approx(

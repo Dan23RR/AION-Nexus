@@ -18,8 +18,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from aion_nexus import InferenceEngine, NUM_CHANNELS, SIGNAL_LENGTH
-from aion_nexus.preprocessing import preprocess_signal
+from aion_nexus import NUM_CHANNELS, SIGNAL_LENGTH, InferenceEngine
 
 
 def main() -> int:
@@ -68,8 +67,8 @@ def main() -> int:
         print(f"  Class agreement:    {agree}/{args.n_validate} ({agree_pct:.1f}%)")
         print(f"  Max prob drift:     {max_prob_drift:.4f}")
         if agree_pct < 95:
-            print(f"WARN: agreement < 95%; quantization may be hurting accuracy too much.")
-            print(f"  Consider per-channel quantization or quantization-aware training.")
+            print("WARN: agreement < 95%; quantization may be hurting accuracy too much.")
+            print("  Consider per-channel quantization or quantization-aware training.")
             return 1
 
     print(f"\nSaved INT8 checkpoint to {out_path}")

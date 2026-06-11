@@ -4,7 +4,7 @@
 
 A multi-scale temporal deep-learning system that classifies bearing degradation severity from 2-channel accelerometer data. Honest, reproducible cross-*dataset* numbers: F1 0.615 zero-shot and 0.672 few-shot (10 samples/class) on MFPT — never seen in training. Cross-*bearing* generalization without adaptation collapses below 0.4 (LOBO); we measure and publish this rather than hide it. See [MODEL_CARD.md](MODEL_CARD.md) and [PERFORMANCE_BENCHMARKS.md](PERFORMANCE_BENCHMARKS.md).
 
-[![Status](https://img.shields.io/badge/status-production-green)]() [![Python](https://img.shields.io/badge/python-3.10+-blue)]() [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange)]() [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
+[![Status](https://img.shields.io/badge/status-production-green)]() [![Version](https://img.shields.io/badge/version-2.2.0-blue)]() [![Python](https://img.shields.io/badge/python-3.10+-blue)]() [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange)]() [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
 
 ---
 
@@ -29,8 +29,12 @@ Numbers cross-validated against 4 independent result-log files in the source rep
 |---|---|---|---|
 | **FEMTO in-distribution** (11 run-to-failure bearings, test split) | **0.884** | 2,792 | delta 0.0003 ✓ |
 | **FEMTO validation** (same bearings) | **0.898** | 2,792 | source `final_results.json` |
-| **MFPT zero-shot cross-domain** | **0.615** | 94 | source `cross_validation_results.json` |
+| **MFPT zero-shot cross-domain** | **0.615** ¹ | 94 | source `cross_validation_results.json` |
 | **MFPT few-shot, 10 samples** | **0.672 ± 0.006** | 94 | source `mfpt_sensitivity_results.json` (3 runs) |
+
+¹ **Reproducibility caveat (2026-06-04)**: 0.615 is a logged October-2025 result, not currently
+reproducible from the shipped code (current MFPT loader: F1 = 0.5546 @ n=224 vs 0.615 @ n=94;
+original windowing recipe lost). See `docs/reproduce.md`.
 
 ### Optional architecture: v6 (TempAttn+TRM)
 
@@ -71,10 +75,13 @@ python examples/01_basic_inference.py path/to/your_signal.csv
 
 # 5. Run as a service
 uvicorn server.main:app --host 0.0.0.0 --port 8080
-curl -X POST http://localhost:8080/predict -F "file=@path/to/your_signal.csv"
+curl -X POST http://localhost:8080/predict_csv -F "file=@path/to/your_signal.csv"
 ```
 
 ## Hardware requirements
+
+> **Estimated, not benchmarked in `results/`** — engineering estimates; measure on your target
+> hardware with `python -m scripts.benchmark_inference`.
 
 | Mode | Latency (per sample) | Throughput | RAM | Notes |
 |---|---|---|---|---|
@@ -88,23 +95,54 @@ The 4.1 MB model fits comfortably on edge devices. ONNX export available via `sc
 
 - **Local Python**: `pip install .`
 - **Docker**: `docker build -t aion-nexus . && docker run -p 8080:8080 aion-nexus`
-- **REST API**: FastAPI server exposes `/predict`, `/predict_batch`, `/health`, `/version`. See `docs/api_reference.md`.
+- **REST API**: FastAPI server exposes `/predict`, `/predict_csv`, `/predict_batch`, `/predict_long_signal`, `/health`, `/version`, `/metrics` (Prometheus). See `docs/api_reference.md`.
 - **Edge / ONNX**: `python scripts/export_onnx.py` produces `aion_nexus.onnx` runnable on ONNX Runtime.
+
+### Server configuration (environment variables)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `AION_CHECKPOINT` | `checkpoints/aion_nexus_v1.pth` | Checkpoint to serve |
+| `AION_DEVICE` | `cpu` | Inference device |
+| `AION_API_KEY` | unset (auth off) | Enables `X-API-Key` header auth on all endpoints (`/health` stays open) |
+| `AION_MAX_BODY_BYTES` | `10485760` (10 MB) | Request body cap — oversized requests get `413` |
+| `AION_CORS_ORIGINS` | unset (no CORS) | Comma-separated allowed origins |
+| `AION_LOG_JSON` | unset (plain logs) | `1` switches to structured JSON logs with `request_id` |
 
 ## Few-shot domain adaptation
 
-When deploying to a new machine type, you can adapt with **10 labeled samples per class** (40 total) for a +5.7 pp F1 lift. This is engineered to minimize annotation cost.
+When deploying to a new machine type, you can adapt with **10 labeled samples per class** (40 total) for a +5.7 pp F1 lift (delta over the 0.615 zero-shot baseline — see caveat ¹ above on its provenance). This is engineered to minimize annotation cost.
 
 ```python
 from aion_nexus import InferenceEngine, FewShotAdapter
 
 engine = InferenceEngine.from_checkpoint("checkpoints/aion_nexus_v1.pth")
-adapter = FewShotAdapter(engine, num_classes=4)
+adapter = FewShotAdapter(engine)
 adapter.adapt(target_signals, target_labels, epochs=5, lr=1e-4)
 adapter.save("checkpoints/aion_nexus_v1_machine42.pth")
 ```
 
 See `examples/03_few_shot_adaptation.py` for a complete walk-through.
+
+## Substrate v3 — few-shot cross-domain backbone (since 2.1.0)
+
+For onboarding a **new machine/rig with minimal labels**, the package ships a self-supervised
+PatchTST foundation encoder (`aion_nexus/substrate_v3.py`, 1,220,928 params, pretrained
+NT-Xent on unlabeled FEMTO+MFPT+CWRU — 9,315 windows, 400 epochs). The encoder stays frozen;
+a small head is trained per deployment with ~10 labels/class.
+
+Verified numbers (§6.31 honest framing):
+
+- **LOBO 10-shot F1 = 0.783 ± 0.041** on unseen FEMTO bearings; LOBO full-transfer
+  (no target labels) = 0.533.
+- Cross-dataset 10-shot macro-F1 0.91–1.00 on all FEMTO↔MFPT↔CWRU pairs — **binary health
+  (2-class) task, vs a weak random-init control**; not a 4-class severity result.
+- **Zero-shot cross-rig is NOT reliable** (mean lift −0.03): always collect the ~10 labels/class.
+- v3 does NOT beat v1 in-distribution (FEMTO F1 0.884 stands). Bigger (v3.1) and more-data
+  (v3.2) variants did not move the 10-shot ceiling (~0.78) and were not promoted.
+
+See `MODEL_CARD.md` ("v3 substrate backbone") and `PERFORMANCE_BENCHMARKS.md`
+("Substrate v3") for the full tables and caveats.
 
 ## Limitations and scope
 

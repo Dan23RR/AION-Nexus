@@ -7,7 +7,10 @@ import numpy as np
 import pytest
 
 from aion_nexus import (
-    NUM_CHANNELS, SIGNAL_LENGTH, validate_signal, preprocess_signal,
+    NUM_CHANNELS,
+    SIGNAL_LENGTH,
+    preprocess_signal,
+    validate_signal,
 )
 from aion_nexus.preprocessing import SignalValidationError, preprocess_batch
 
@@ -138,7 +141,7 @@ class TestValidateSignal:
         out = validate_signal(sig)
         assert out.dtype == np.float32
 
-    def test_Nx2_auto_transpose(self):
+    def test_nx2_auto_transpose(self):
         sig = np.random.randn(3000, NUM_CHANNELS).astype(np.float32)
         out = validate_signal(sig)
         assert out.shape == (NUM_CHANNELS, SIGNAL_LENGTH)

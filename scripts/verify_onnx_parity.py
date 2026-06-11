@@ -18,7 +18,7 @@ import sys
 import numpy as np
 import torch
 
-from aion_nexus import InferenceEngine, NUM_CHANNELS, SIGNAL_LENGTH
+from aion_nexus import NUM_CHANNELS, SIGNAL_LENGTH, InferenceEngine
 from aion_nexus.preprocessing import preprocess_signal
 
 
@@ -49,7 +49,7 @@ def main() -> int:
     max_prob_diff = 0.0
     class_disagreements = 0
 
-    for i in range(args.n_samples):
+    for _ in range(args.n_samples):
         sig = rng.standard_normal((NUM_CHANNELS, SIGNAL_LENGTH)).astype(np.float32)
         x_torch = preprocess_signal(sig)  # [1, 2, 2560]
         x_onnx = x_torch.numpy()

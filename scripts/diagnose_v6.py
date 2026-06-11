@@ -23,7 +23,6 @@ from pathlib import Path
 import numpy as np
 import torch
 
-
 _logger = logging.getLogger(__name__)
 
 
@@ -102,7 +101,7 @@ def hyperparameter_sweep(engine, dataset, test_idx, configs: list[dict]) -> list
     # Cache features once (they don't depend on N_supervision / T_recursions)
     test_features = []
     test_labels = []
-    BATCH = 64
+    BATCH = 64  # noqa: N806 — constant-style local, intentional
     with torch.no_grad():
         signals = []
         for idx in test_idx:
@@ -118,9 +117,9 @@ def hyperparameter_sweep(engine, dataset, test_idx, configs: list[dict]) -> list
 
     results = []
     for cfg in configs:
-        T = cfg.get("T_recursions", 3)
+        T = cfg.get("T_recursions", 3)        # noqa: N806 — mirrors TRM paper notation
         n = cfg.get("n_reasoning", 6)
-        N_sup = cfg.get("N_supervision", 1)
+        N_sup = cfg.get("N_supervision", 1)   # noqa: N806 — mirrors TRM paper notation
         _logger.info("  Sweep: T=%d n=%d N_sup=%d", T, n, N_sup)
         preds = []
         with torch.no_grad():
