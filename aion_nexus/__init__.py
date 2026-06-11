@@ -12,12 +12,22 @@ Two architecture versions supported, both verified against published numbers:
   (see results/lobo_cv_v6/). Smaller/faster/noise-robust; opt-in for short-cycle
   calibration regimes, not a drop-in accuracy upgrade. See MODEL_CARD.md.
 
+- **v3 substrate** (PatchTST self-supervised foundation encoder, ~1.22M params):
+  a FROZEN cross-domain FEW-SHOT backbone — NOT a higher in-distribution classifier
+  (v1's 0.884 stands). Adapt to a NEW machine with ~10 labels/class; served via the
+  AION-2 verified trust layer (conformal + physics verifier -> certificate).
+  Cross-dataset 10-shot health macro-F1 0.91-1.00 (vs random-init 0.5-0.8).
+  See `substrate_v3.py` + MODEL_CARD.md.
+
 `InferenceEngine.from_checkpoint()` auto-detects the architecture from the
 checkpoint's state_dict keys; no flag required for the common case.
 """
 from aion_nexus.version import __version__
 from aion_nexus.model import AIONNexus, create_aion_nexus
 from aion_nexus.model_v6 import AIONNexusV6, create_aion_nexus_v6, V6_PARAM_COUNT_4CLASS
+from aion_nexus.substrate_v3 import (
+    AIONNexusV3, SubstrateEncoderV3, create_substrate_v3, V3_ENCODER_PARAM_COUNT,
+)
 from aion_nexus.temporal_attention import TemporalSelfAttention
 from aion_nexus.recursive_reasoner import TinyRecursiveReasoner
 from aion_nexus.preprocessing import preprocess_signal, validate_signal
@@ -40,6 +50,8 @@ __all__ = [
     # v6 architecture
     "AIONNexusV6", "create_aion_nexus_v6", "V6_PARAM_COUNT_4CLASS",
     "TemporalSelfAttention", "TinyRecursiveReasoner",
+    # v3 substrate (self-supervised foundation backbone)
+    "AIONNexusV3", "SubstrateEncoderV3", "create_substrate_v3", "V3_ENCODER_PARAM_COUNT",
     # Engine + utilities
     "InferenceEngine", "PredictionResult", "FewShotAdapter",
     "preprocess_signal", "validate_signal",

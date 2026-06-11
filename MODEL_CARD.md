@@ -3,7 +3,7 @@
 ## Model details
 
 - **Name**: AION-NEXUS
-- **Version**: 2.0.0 (release date: 2026-04-27; adds v6 architecture + §6.31 comparability finding). The v1 BiGRU model below remains the production-recommended architecture.
+- **Version**: 2.1.0 (2026-06-04; adds the **v3 self-supervised substrate** foundation backbone). 2.0.0 (2026-04-27) added v6 + the §6.31 comparability finding. The v1 BiGRU below remains the production-recommended IN-DISTRIBUTION architecture; v3 is the cross-domain FEW-SHOT backbone (see "v3 substrate backbone" below).
 - **Architecture**: Multi-Scale Temporal CNN + Channel Attention + Bidirectional GRU + 3-layer MLP classifier
 - **Parameters**: 1,061,724 (4.1 MB FP32)
 - **Input**: 2-channel vibration signal, 2,560 samples (0.1 s @ 25.6 kHz)
@@ -11,6 +11,32 @@
 - **License**: Apache 2.0
 - **Author**: Daniel Culotta
 - **Contact**: daniel.culotta@gmail.com
+
+## v3 substrate backbone (added 2.1.0) — honest positioning
+
+v3 is a **self-supervised PatchTST foundation encoder** (~1.22M params), pretrained
+contrastively (NT-Xent) on unlabeled FEMTO+MFPT+CWRU vibration. It is **frozen**; a small
+head is trained per-deployment with ~10 labels/class (few-shot), then served through the
+AION-2 verified trust layer (conformal prediction sets + closed-form physics verifier →
+tamper-evident certificate).
+
+**What v3 is NOT (§6.31):** a higher in-distribution classifier. v1's FEMTO in-distribution
+F1=0.884 is unbeaten by v3 for that task (v3 full-transfer to unseen machines ≈ 0.55).
+
+**What v3 IS:** the cross-domain few-shot backbone, validated under leave-one-bearing-out and
+**cross-DATASET** (FEMTO↔MFPT↔CWRU):
+- 10-shot binary-health macro-F1 **0.91–1.00** across all dataset pairs (vs random-init 0.5–0.8)
+- 10-shot LOBO severity F1 ≈ 0.78 on unseen FEMTO bearings. (Scaled run 9,315/400ep: within
+  noise → architecture-saturated. **v3.1** — a 2.6× bigger net + hybrid masked⊕contrastive —
+  was tested and ALSO did not improve beyond noise (10-shot 0.801, +0.018) → the lever is
+  **data diversity** (more rigs: Paderborn/NASA-IMS), NOT model size. v3.1 not promoted; v3
+  stays. See `AION_NEXUS_RD/aion2_verified_substrate/foundation/RETRACTION_substrate_v31.md`.)
+- zero-shot cross-rig is **NOT reliable** — collect the ~10 labels.
+
+Use v3 to onboard a NEW machine/rig with minimal labels, and as the trustworthy backbone
+behind certified inference. Checkpoint: `checkpoints/aion_nexus_substrate_v3.pth` (objective
+`contrastive-ntxent-patchTST`). Trust layer + few-shot tooling live in the AION-2 package
+(`AION_NEXUS_RD/aion2_verified_substrate/`).
 
 ## Intended use
 

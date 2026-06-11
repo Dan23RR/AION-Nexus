@@ -4,6 +4,34 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-06-04 (v3 self-supervised substrate foundation backbone)
+
+### Added
+- **v3 substrate** (`aion_nexus/substrate_v3.py`): a PatchTST self-supervised foundation
+  encoder (1,220,928 params), pretrained contrastively (NT-Xent) on unlabeled
+  FEMTO+MFPT+CWRU vibration. Frozen encoder + per-deployment few-shot head; served via the
+  AION-2 verified trust layer (conformal + physics verifier → tamper-evident certificate).
+  `create_substrate_v3()` with encoder param-count guard; checkpoint
+  `checkpoints/aion_nexus_substrate_v3.pth` (objective `contrastive-ntxent-patchTST`).
+- `tests/test_substrate_v3.py` — param guard, drift-refusal, forward contract,
+  frozen-encoder/trainable-head, checkpoint load (5 tests).
+
+### Verified (honest, §6.31)
+- v3 is NOT a higher in-distribution classifier — v1 FEMTO F1=0.884 stands; v3 full-transfer
+  to unseen machines ≈ 0.55.
+- v3's value = cross-domain FEW-SHOT: 10-shot LOBO FEMTO severity F1 ≈ 0.78; **cross-DATASET
+  10-shot binary-health macro-F1 0.91–1.00** (FEMTO↔MFPT↔CWRU) vs random-init 0.5–0.8.
+  Zero-shot cross-rig is NOT reliable.
+- Scaled run (9,315 windows / 400 epochs, Colab T4): 10-shot 0.760→0.783, full-transfer
+  0.554→0.533 — **within noise** → the encoder is **architecture-saturated** at
+  d_model 192/depth 4. Promoted (drop-in) as the production v3 checkpoint. The real next
+  lever is a bigger **v3.1** (see Roadmap), not more data at this scale.
+
+### Notes
+- Backward-compatible: v1 (default) and v6 unchanged; v3 is opt-in.
+- Fulfils the 2.1.0 roadmap item (multi-domain pre-training), realized as a self-supervised
+  substrate. Scaled pretraining reproducible via the AION-2 `foundation/` scripts (Colab GPU).
+
 ## [1.0.0] — 2025-10-10
 
 ### Added
@@ -148,8 +176,10 @@ When v6 (trained on Learning_set) is evaluated on the industrial Test_set 11 bea
 
 ## Roadmap (future)
 
-> Current released version is **2.0.0** (see above). The items below are post-2.0 plans.
+> Current released version is **2.1.0** (see above). The items below are post-2.1 plans.
 
-- 2.1.0: Multi-domain pre-training across FEMTO + Paderborn + NASA-IMS.
+- ✅ 2.1.0: Multi-domain pre-training — DONE, realized as the v3 self-supervised substrate (FEMTO+MFPT+CWRU; Paderborn/NASA-IMS to be added in the scaled run).
+- v3.1 (bigger arch d_model 256/depth 6 + hybrid masked⊕contrastive): **TESTED 2026-06-04, FAILED** — LOBO 10-shot 0.801 (+0.018 vs v3, within noise), full-transfer down → architecture is NOT the lever on the current 3-rig data; not promoted (v3 stays). The production module is arch-flexible (`AIONNexusV3.from_checkpoint`) for a future data-driven v3.2. See `AION_NEXUS_RD/aion2_verified_substrate/foundation/RETRACTION_substrate_v31.md`.
+- **Next real lever = DATA diversity**: add Paderborn (KAt-DataCenter) + NASA-IMS rigs to the unlabeled pretraining corpus, re-pretrain at the v3 architecture.
 - 2.2.0: Multi-task heads (severity + location simultaneously).
 - 2.3.0: Streaming inference engine (online sequential decisions).
