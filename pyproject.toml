@@ -57,11 +57,11 @@ onnx = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/[org]/aion-nexus"
-Documentation = "https://github.com/[org]/aion-nexus/blob/main/README.md"
-"Model Card" = "https://github.com/[org]/aion-nexus/blob/main/MODEL_CARD.md"
-Performance = "https://github.com/[org]/aion-nexus/blob/main/PERFORMANCE_BENCHMARKS.md"
-Changelog = "https://github.com/[org]/aion-nexus/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Dan23RR/aion-nexus"
+Documentation = "https://github.com/Dan23RR/aion-nexus/blob/main/README.md"
+"Model Card" = "https://github.com/Dan23RR/aion-nexus/blob/main/MODEL_CARD.md"
+Performance = "https://github.com/Dan23RR/aion-nexus/blob/main/PERFORMANCE_BENCHMARKS.md"
+Changelog = "https://github.com/Dan23RR/aion-nexus/blob/main/CHANGELOG.md"
 
 [project.scripts]
 aion-verify = "scripts.verify_checkpoint:main"

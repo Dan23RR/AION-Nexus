@@ -28,10 +28,15 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Trained checkpoints (not in repo; download separately)
+# Trained checkpoints: the three released models ARE shipped in-repo (~12 MB
+# total) so that `clone + verify_checkpoint.py` works out of the box; other
+# checkpoint artifacts stay out.
 checkpoints/*.pth
 checkpoints/*.onnx
 checkpoints/*.pt
+!checkpoints/aion_nexus_v1.pth
+!checkpoints/aion_nexus_v6.pth
+!checkpoints/aion_nexus_substrate_v3.pth
 
 # Data (not in repo)
 data/
@@ -48,3 +53,7 @@ logs/
 # Local environment variables
 .env
 .env.local
+
+# Investor pitch decks: not part of the public package (kept local only)
+Pitch-*.pptx
+Pitch-*.pdf
