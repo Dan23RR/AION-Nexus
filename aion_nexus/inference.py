@@ -27,6 +27,7 @@ from aion_nexus.config import (
 )
 from aion_nexus.model import create_aion_nexus
 from aion_nexus.model_v6 import create_aion_nexus_v6
+from aion_nexus.ood import OODConfig, OODResult, check_signal_plausibility
 from aion_nexus.preprocessing import preprocess_batch, preprocess_signal
 from aion_nexus.version import __version__
 
@@ -44,36 +45,81 @@ def _sha256_file(path: Path, _chunk: int = 1 << 20) -> str:
 
 @dataclass
 class PredictionResult:
-    """Single-sample prediction result with full provenance."""
+    """Single-sample prediction result with full provenance.
+
+    The ``ood_*`` fields are an ADDITIVE plausibility-gate annotation (see
+    ``aion_nexus.ood``). They never change the ``predicted_class_*`` /
+    ``probabilities`` / ``confidence`` fields (the raw classifier output is
+    always preserved for transparency and downstream auditing). When
+    ``ood_flag`` is True the input is implausible as bearing vibration, the
+    engine ABSTAINS, and ``recommended_action`` is overridden to a no-escalation
+    abstain action (alert_level 0, stop_machine False) regardless of the
+    classifier's verdict.
+    """
     predicted_class_index: int
     predicted_class_name: str
     description: str
-    probabilities: dict[str, float]    # name -> probability
-    confidence: float                  # max probability
+    probabilities: dict[str, float]    # name -> probability (raw classifier output)
+    confidence: float                  # max probability (raw classifier output)
     confidence_band: str               # "high" / "medium" / "low"
     recommended_action: dict
     latency_ms: float
     model_version: str
+    # Additive OOD / plausibility-gate fields (backward-compatible).
+    ood_flag: bool = False
+    ood_score: float = 0.0
+    ood_reason: str | None = None
+    abstain: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# Action returned when the plausibility gate abstains: no escalation, ever.
+_ABSTAIN_ACTION: dict = {
+    "alert_level": 0,
+    "stop_machine": False,
+    "schedule_inspection": False,
+    "abstain": True,
+}
 
 
 class InferenceEngine:
     """Production inference engine. Thread-safe for read-only inference."""
 
     def __init__(self, model, device: torch.device | str = "cpu",
-                 architecture_version: str = "v1") -> None:
+                 architecture_version: str = "v1",
+                 ood_config: OODConfig | None = None) -> None:
         """Wrap a torch model in an inference engine.
 
         ``model`` may be an instance of :class:`AIONNexus` (v1) or
         :class:`AIONNexusV6` (v6).
+
+        ``ood_config`` tunes the heuristic plausibility gate (see
+        ``aion_nexus.ood``); defaults to thresholds from ``AION_OOD_*`` env vars.
         """
         self.device = torch.device(device)
         self.model = model.to(self.device).eval()
         self.architecture_version = architecture_version
+        self.ood_config = ood_config if ood_config is not None else OODConfig.from_env()
         self._latency_ms_running_avg = 0.0
         self._inference_count = 0
+
+    def _apply_ood_gate(
+        self, signal: np.ndarray, idx: int, conf: float, band: str
+    ) -> tuple[int, float, str, dict, OODResult]:
+        """Run the plausibility gate on a RAW signal window.
+
+        Returns ``(idx, conf, band, recommended_action, ood_result)``. The class
+        index / confidence / band are passed through UNCHANGED (raw classifier
+        output is always preserved); only ``recommended_action`` is replaced with
+        the abstain action when the gate fires, so an implausible input can never
+        escalate to an automated stop-machine.
+        """
+        ood = check_signal_plausibility(signal, self.ood_config)
+        if ood.ood_flag:
+            return idx, conf, band, dict(_ABSTAIN_ACTION), ood
+        return idx, conf, band, CLASS_ACTIONS[CLASS_NAMES[idx]], ood
 
     @staticmethod
     def detect_architecture(state_dict: dict) -> str:
@@ -245,6 +291,11 @@ class InferenceEngine:
         idx = int(np.argmax(probs))
         conf = float(probs[idx])
         band = self._confidence_band(conf)
+
+        # Plausibility gate on the RAW signal (before z-score/highpass erase
+        # amplitude). On an implausible input we ABSTAIN: the raw class/conf are
+        # preserved, but recommended_action is forced to no-escalation.
+        idx, conf, band, action, ood = self._apply_ood_gate(signal, idx, conf, band)
         latency = (time.perf_counter() - t0) * 1000.0
 
         # Update running latency average for monitoring
@@ -262,9 +313,13 @@ class InferenceEngine:
             probabilities={n: float(probs[i]) for i, n in enumerate(CLASS_NAMES)},
             confidence=conf,
             confidence_band=band,
-            recommended_action=CLASS_ACTIONS[name],
+            recommended_action=action,
             latency_ms=latency,
             model_version=__version__,
+            ood_flag=ood.ood_flag,
+            ood_score=ood.ood_score,
+            ood_reason=ood.ood_reason,
+            abstain=ood.ood_flag,
         )
 
     @torch.no_grad()
@@ -272,8 +327,9 @@ class InferenceEngine:
         """Predict on a batch of signals (more efficient than looped predict)."""
         if not signals:
             return []
+        signals = list(signals)
         t0 = time.perf_counter()
-        x = preprocess_batch(list(signals)).to(self.device)
+        x = preprocess_batch(signals).to(self.device)
         out = self.model(x)
         probs = torch.softmax(out["logits"], dim=1).cpu().numpy()
         latency_per = ((time.perf_counter() - t0) * 1000.0) / len(signals)
@@ -282,6 +338,11 @@ class InferenceEngine:
         for i in range(probs.shape[0]):
             idx = int(np.argmax(probs[i]))
             conf = float(probs[i, idx])
+            band = self._confidence_band(conf)
+            # Per-window plausibility gate on the corresponding RAW signal.
+            idx, conf, band, action, ood = self._apply_ood_gate(
+                signals[i], idx, conf, band
+            )
             name = CLASS_NAMES[idx]
             results.append(PredictionResult(
                 predicted_class_index=idx,
@@ -289,10 +350,14 @@ class InferenceEngine:
                 description=CLASS_DESCRIPTIONS[name],
                 probabilities={n: float(probs[i, j]) for j, n in enumerate(CLASS_NAMES)},
                 confidence=conf,
-                confidence_band=self._confidence_band(conf),
-                recommended_action=CLASS_ACTIONS[name],
+                confidence_band=band,
+                recommended_action=action,
                 latency_ms=latency_per,
                 model_version=__version__,
+                ood_flag=ood.ood_flag,
+                ood_score=ood.ood_score,
+                ood_reason=ood.ood_reason,
+                abstain=ood.ood_flag,
             ))
         return results
 

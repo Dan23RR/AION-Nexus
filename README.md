@@ -1,8 +1,19 @@
 # AION-NEXUS
 
-**Production-grade bearing-fault diagnosis from raw vibration signals.**
+**Production-grade bearing degradation-stage estimation from raw vibration signals.**
 
-A multi-scale temporal deep-learning system that classifies bearing degradation severity from 2-channel accelerometer data. Honest, reproducible cross-*dataset* numbers: F1 0.615 zero-shot and 0.672 few-shot (10 samples/class) on MFPT — never seen in training. Cross-*bearing* generalization without adaptation collapses below 0.4 (LOBO); we measure and publish this rather than hide it. See [MODEL_CARD.md](MODEL_CARD.md) and [PERFORMANCE_BENCHMARKS.md](PERFORMANCE_BENCHMARKS.md).
+> **What the labels actually are (read this first).** The 4 classes are a **positional
+> life-stage** label — `degradation_pct = file_idx / (total_files − 1)` quantized into 4 bins —
+> **not an independently diagnosed fault type**. This system performs **degradation-stage / RUL
+> estimation, not fault-type diagnosis**. Wherever this document says "fault diagnosis" or
+> "severity class", read it through this caveat. We previously labelled this "fault diagnosis";
+> that name is a misnomer and is being corrected.
+
+A multi-scale temporal deep-learning system that estimates bearing degradation stage from 2-channel accelerometer data. Honest, reproducible cross-*dataset* numbers: F1 0.615 zero-shot and 0.672 few-shot (10 samples/class) on MFPT — never seen in training. Cross-*bearing* generalization without adaptation collapses below 0.4 (LOBO); we measure and publish this rather than hide it. See [MODEL_CARD.md](MODEL_CARD.md) and [PERFORMANCE_BENCHMARKS.md](PERFORMANCE_BENCHMARKS.md).
+
+> **Where we publish our failures.** Retracted / corrected claims live in
+> [RETRACTIONS.md](RETRACTIONS.md). Exact reproduction steps (and the known non-reproducible
+> numbers) live in [docs/reproduce.md](docs/reproduce.md). Read both before quoting any number.
 
 [![Status](https://img.shields.io/badge/status-production-green)]() [![Version](https://img.shields.io/badge/version-2.2.0-blue)]() [![Python](https://img.shields.io/badge/python-3.10+-blue)]() [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange)]() [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
 
@@ -10,7 +21,7 @@ A multi-scale temporal deep-learning system that classifies bearing degradation 
 
 ## What it does
 
-Given 0.1 seconds of 2-channel vibration signal sampled at 25.6 kHz from a rolling-element bearing, AION-NEXUS predicts one of four severity classes:
+Given 0.1 seconds of 2-channel vibration signal sampled at 25.6 kHz from a rolling-element bearing, AION-NEXUS predicts one of four degradation-stage classes. **These classes are a positional life-stage proxy (RUL), not a diagnosed fault type** (see headline caveat):
 
 | Class | Meaning | Recommended action |
 |---|---|---|
@@ -27,14 +38,26 @@ Numbers cross-validated against 4 independent result-log files in the source rep
 
 | Benchmark | F1 (macro) | n samples | Verified |
 |---|---|---|---|
-| **FEMTO in-distribution** (11 run-to-failure bearings, test split) | **0.884** | 2,792 | delta 0.0003 ✓ |
+| **FEMTO in-distribution** (11 run-to-failure bearings, **stratified-random split**) | **0.884** | 2,792 | delta 0.0003 ✓ |
 | **FEMTO validation** (same bearings) | **0.898** | 2,792 | source `final_results.json` |
+| **Honest leave-one-bearing-out (LOBO)** — generalization to an unseen bearing | **v6: 0.352 ± 0.112** ² | — | verified (see benchmarks) |
 | **MFPT zero-shot cross-domain** | **0.615** ¹ | 94 | source `cross_validation_results.json` |
 | **MFPT few-shot, 10 samples** | **0.672 ± 0.006** | 94 | source `mfpt_sensitivity_results.json` (3 runs) |
+
+The headline **0.884 is a stratified-random split** (windows from every bearing appear in both
+train and test). The honest generalization signal is the LOBO row: when a whole bearing is held
+out, F1 collapses to **0.352 ± 0.112** (v6). A clean LOBO for the v1 checkpoint is still pending
+(only a weaker per-bearing breakdown of the existing checkpoint exists — see benchmarks). Treat
+0.884 as in-distribution, not as evidence of generalization to a new bearing.
 
 ¹ **Reproducibility caveat (2026-06-04)**: 0.615 is a logged October-2025 result, not currently
 reproducible from the shipped code (current MFPT loader: F1 = 0.5546 @ n=224 vs 0.615 @ n=94;
 original windowing recipe lost). See `docs/reproduce.md`.
+
+² **LOBO caveat**: 0.352 ± 0.112 is the verified v6 leave-one-bearing-out result (full retrain
+holding one bearing out). A clean v1 LOBO is **pending**. The per-bearing breakdown in the
+benchmarks (0.9218 ± 0.0426) is **NOT** LOBO — it evaluates the existing checkpoint, which saw
+samples from every bearing in training, so it is an optimistic proxy, not a generalization number.
 
 ### Optional architecture: v6 (TempAttn+TRM)
 
@@ -133,10 +156,18 @@ a small head is trained per deployment with ~10 labels/class.
 
 Verified numbers (§6.31 honest framing):
 
-- **LOBO 10-shot F1 = 0.783 ± 0.041** on unseen FEMTO bearings; LOBO full-transfer
-  (no target labels) = 0.533.
+- **10-shot F1 = 0.783 ± 0.041** on held-out FEMTO bearings — **TRANSDUCTIVE, not clean LOBO.**
+  The SSL encoder is contrastively pretrained on a corpus (`cache_corpus_full.npz`) that
+  **includes the held-out bearings (Bearing1_5 / 2_5 / 3_3) as unlabeled data**
+  (`substrate_corpus.py` iterates all 11 RTF bearings with no exclusion). So the encoder has
+  seen the test bearings' signals; only their labels were withheld. A nested-LOBO with clean SSL
+  (re-pretrain excluding the held-out bearing) has **not** been run, so 0.783 must not be quoted
+  as leave-one-bearing-out. LOBO full-transfer (no target labels) = 0.533.
 - Cross-dataset 10-shot macro-F1 0.91–1.00 on all FEMTO↔MFPT↔CWRU pairs — **binary health
-  (2-class) task, vs a weak random-init control**; not a 4-class severity result.
+  (2-class) task, vs a weak random-init control**; not a 4-class severity result. **This task is
+  matched by a non-ML threshold on kurtosis** calibrated on the same 10 samples (≈ 0.911 mean
+  macro-F1, 1.000 on FEMTO→CWRU), so the 0.91–1.00 number does **not** demonstrate the
+  substrate's value. The value must be shown on 4-class severity, not on binary health.
 - **Zero-shot cross-rig is NOT reliable** (mean lift −0.03): always collect the ~10 labels/class.
 - v3 does NOT beat v1 in-distribution (FEMTO F1 0.884 stands). Bigger (v3.1) and more-data
   (v3.2) variants did not move the 10-shot ceiling (~0.78) and were not promoted.
@@ -173,10 +204,11 @@ If this work supports a paper, please cite:
 ```bibtex
 @article{aion_nexus_2025,
   title  = {NEXUS: Multi-Scale Temporal Deep Learning for Zero-Shot and Few-Shot
-            Cross-Domain Bearing Fault Diagnosis},
+            Cross-Domain Bearing Degradation-Stage Estimation},
   author = {Culotta, Daniel},
   year   = {2025},
-  note   = {Manuscript in preparation. Target: IEEE Trans. Industrial Informatics}
+  note   = {Manuscript in preparation. Target: IEEE Trans. Industrial Informatics.
+            NB: labels are positional life-stage (RUL proxy), not diagnosed fault type.}
 }
 ```
 

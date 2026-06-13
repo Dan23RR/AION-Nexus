@@ -1,5 +1,13 @@
 # Performance Benchmarks — AION-NEXUS v2.2 (updated 2026-06-11)
 
+> **Scope of every F1 below.** The task is **degradation-stage / RUL estimation**, not fault-type
+> diagnosis: the 4 labels are a positional life-stage proxy (`degradation_pct = file_idx /
+> (total−1)`, 4 bins), not independently diagnosed fault types. Read "severity"/"class"
+> accordingly. Two split regimes appear below and are **not interchangeable**: **stratified-random**
+> (in-distribution, e.g. FEMTO test 0.884) vs **held-out-bearing / LOBO** (generalization, e.g.
+> v6 0.352 ± 0.112). Retracted/corrected claims: [RETRACTIONS.md](RETRACTIONS.md). Reproduction
+> steps and known-non-reproducible numbers: [docs/reproduce.md](docs/reproduce.md).
+
 Core v1 numbers verified against 4 independent JSON result-log files in the source repository (`final_results.json`, `cross_validation_results.json`, `mfpt_sensitivity_results.json`, `aion_nexus_training.log`). Cross-source agreement confirms numbers are not transcription artifacts. Tables that are estimates or literature-reported (not backed by artifacts in `results/`) are explicitly labeled as such.
 
 ## In-distribution: FEMTO bearing dataset
@@ -171,17 +179,31 @@ Self-supervised **PatchTST** foundation encoder (1,220,928 params), pretrained c
 (NT-Xent) on an unlabeled FEMTO+MFPT+CWRU corpus (9,315 windows, 400 epochs). Frozen encoder +
 small per-deployment few-shot head. Promoted to production in 2.1.0 (2026-06-04).
 
-| Benchmark (FEMTO leave-one-bearing-out) | F1 macro | Status |
+| Benchmark (FEMTO held-out bearing) | F1 macro | Status |
 |---|---|---|
-| LOBO 10-shot (10 labels/class on the held-out bearing) | **0.783 ± 0.041** | verified |
-| LOBO full-transfer (no target labels) | 0.533 | verified |
+| 10-shot (10 labels/class on the held-out bearing) — **TRANSDUCTIVE, not clean LOBO** ³ | **0.783 ± 0.041** | verified (transductive) |
+| Full-transfer (no target labels) | 0.533 | verified |
+
+³ **SSL-leakage caveat (new, critical).** The 0.783 number is **transductive, not
+leave-one-bearing-out.** The frozen PatchTST encoder is contrastively pretrained on
+`cache_corpus_full.npz`, a corpus that **includes the held-out bearings (Bearing1_5 / 2_5 / 3_3)
+as unlabeled windows** (~664 windows/bearing for all 11 RTF bearings;
+`AION_NEXUS_RD/aion2_verified_substrate/foundation/substrate_corpus.py` line ~58 iterates every
+RTF bearing dir with no held-out exclusion). The encoder has therefore *seen* the held-out
+bearings' signals; only their labels were withheld at head-training time. A clean **nested-LOBO
+SSL** (re-pretrain the encoder excluding the held-out bearing) has **not** been run. Until it is,
+**do not call 0.783 "LOBO" without the qualifier "transductive"**, and do not present it as
+clean leave-one-bearing-out generalization.
 
 **Honest positioning (§6.31):**
 
 - v3 is **NOT** a better in-distribution classifier — v1's FEMTO test F1 = 0.884 stands.
 - Cross-**dataset** 10-shot macro-F1 0.91–1.00 (FEMTO↔MFPT↔CWRU, all pairs; lift +0.277 vs
   random-init) — **binary health (2-class) task, vs a weak random-init control**; not a
-  4-class severity result.
+  4-class severity result. **Triviality caveat (new):** this binary cross-rig health task is
+  **matched by a non-ML threshold on kurtosis** calibrated on the same 10 samples (≈ 0.911 mean
+  macro-F1; 1.000 on FEMTO→CWRU). So 0.91–1.00 does **NOT** demonstrate the substrate's value —
+  the substrate's value has to be shown on the **4-class severity** task, not on binary health.
 - Zero-shot cross-rig is **NOT reliable** (mean lift −0.03 vs random-init) — collect the
   ~10 labels/class.
 - Scaling did not move the 10-shot ceiling (≈ 0.78, stable): **v3.1** (3.2M params, hybrid

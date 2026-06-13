@@ -52,6 +52,7 @@ from server.schemas import (
     BatchPredictResponse,
     ErrorResponse,
     HealthResponse,
+    LongSignalRequest,
     PredictResponse,
 )
 
@@ -64,10 +65,23 @@ MAX_BODY_ENV = "AION_MAX_BODY_BYTES"
 DEFAULT_MAX_BODY_BYTES = 10_485_760  # 10 MiB
 CORS_ENV = "AION_CORS_ORIGINS"
 LOG_JSON_ENV = "AION_LOG_JSON"
+MAX_BATCH_FILES_ENV = "AION_MAX_BATCH_FILES"
+DEFAULT_MAX_BATCH_FILES = 256  # cap the number of uploads per /predict_batch call
 # Pydantic-level cap on the outer signal list ([2, N] or [N, 2] rows). Combined
 # with the byte-level body cap this bounds worst-case parse cost. 262144 samples
 # is ~10.2 s at the FEMTO 25.6 kHz sampling rate.
 MAX_SIGNAL_ROWS = 262_144
+
+# No-escalation action returned when the aggregated plausibility gate abstains on
+# /predict_long_signal (kept structurally identical to the engine's per-window
+# abstain action in aion_nexus.inference). An implausible recording must never
+# escalate to an automated stop/inspection/replacement.
+_AGGREGATE_ABSTAIN_ACTION: dict = {
+    "alert_level": 0,
+    "stop_machine": False,
+    "schedule_inspection": False,
+    "abstain": True,
+}
 
 
 # ---- Logging (optional structured JSON with request_id) ---------------------
@@ -409,7 +423,15 @@ def predict(body: JsonSignalRequest) -> PredictResponse:
         signal: nested list of shape [2, N] or [N, 2], N >= 2560.
     """
     engine = _require_engine()
-    signal = np.asarray(body.signal, dtype=np.float32)
+    # A ragged list (e.g. [[1,2,3],[1]]) makes np.asarray(dtype=float32) raise
+    # ValueError BEFORE engine.predict's try/except — which previously escaped as
+    # an unhandled 500 with a stacktrace (kill-shot #2). Catch it here -> 400.
+    try:
+        signal = np.asarray(body.signal, dtype=np.float32)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            400, f"Malformed signal (ragged or non-numeric rows): {exc}"
+        ) from exc
 
     try:
         result = engine.predict(signal)
@@ -459,6 +481,13 @@ def predict_batch(files: Annotated[list[UploadFile], File()]) -> BatchPredictRes
     """Predict on multiple uploaded CSV files in one request."""
     if not files:
         raise HTTPException(400, "No files uploaded")
+    max_files = int(os.environ.get(MAX_BATCH_FILES_ENV, str(DEFAULT_MAX_BATCH_FILES)))
+    if len(files) > max_files:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many files: {len(files)} > limit {max_files} "
+                   f"(configure via {MAX_BATCH_FILES_ENV}).",
+        )
     engine = _require_engine()
 
     signals = []
@@ -488,22 +517,35 @@ def predict_batch(files: Annotated[list[UploadFile], File()]) -> BatchPredictRes
     )
 
 
-class LongSignalRequest(BaseModel):
-    signal: list[list[float]] = Field(..., description="Long signal, shape [2, N]")
-    aggregation: str = Field("mean", description="'mean', 'majority', or 'max_class'")
-    window: int = Field(2560, description="Window size in samples")
-    stride: int | None = Field(None, description="Stride; None = non-overlapping")
-
-
 @app.post("/predict_long_signal", dependencies=[Depends(_require_api_key)])
 def predict_long_signal(req: LongSignalRequest) -> dict:
     """Window-then-aggregate prediction over a long signal (multi-second).
 
     Useful for bearing diagnosis from a multi-second recording rather than a
     single 0.1-second window.
+
+    DoS hardening (kill-shot #1) is enforced at the schema layer
+    (``LongSignalRequest``): the signal list is length-capped, window/stride are
+    bounded, and the implied window count is checked against ``AION_MAX_WINDOWS``
+    BEFORE this handler runs — so an attack body is rejected with 422 before any
+    numpy allocation or model forward.
+
+    Plausibility hardening (kill-shot #4) is propagated to the AGGREGATED verdict:
+    per-window OOD flags from ``predict_batch`` are aggregated, and if a majority
+    of windows are implausible (white noise / saturated / quasi-constant) the
+    response ABSTAINS — ``recommended_action`` is forced to no-escalation and the
+    ``ood_*`` fields are surfaced — so an implausible recording cannot escalate.
     """
     engine = _require_engine()
-    signal = np.asarray(req.signal, dtype=np.float32)
+    # Guard the ndarray conversion: a ragged list ([[1,2,3],[1]]) makes
+    # np.asarray raise ValueError, which would otherwise escape as a 500
+    # (kill-shot #2, same root cause as /predict).
+    try:
+        signal = np.asarray(req.signal, dtype=np.float32)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            400, f"Malformed signal (ragged or non-numeric rows): {exc}"
+        ) from exc
 
     try:
         windows = segment_signal(signal, window=req.window, stride=req.stride)
@@ -520,14 +562,41 @@ def predict_long_signal(req: LongSignalRequest) -> dict:
 
     from aion_nexus.config import CLASS_ACTIONS, CLASS_DESCRIPTIONS, CLASS_NAMES
     name = CLASS_NAMES[idx]
+
+    # Propagate the per-window plausibility gate to the AGGREGATED verdict
+    # (kill-shot #4 on the long-signal path): predict_batch already abstains
+    # per window, but the aggregation above ignores those per-window actions and
+    # would otherwise re-derive an escalating action straight from CLASS_ACTIONS.
+    # That let a whole recording of white noise / saturated / quasi-constant
+    # windows escalate to alert_level >= 1 here even though every single window
+    # was individually flagged OOD and abstained. We aggregate the OOD verdict:
+    # if a majority of windows are implausible, the recording as a whole is
+    # implausible -> ABSTAIN (no escalation), and the OOD fields are surfaced.
+    n_ood = sum(1 for r in results if r.ood_flag)
+    ood_fraction = n_ood / len(results) if results else 0.0
+    aggregate_ood = ood_fraction > 0.5
+    if aggregate_ood:
+        recommended_action = dict(_AGGREGATE_ABSTAIN_ACTION)
+        # First OOD reason is representative (all share the same gate).
+        ood_reason = next((r.ood_reason for r in results if r.ood_flag), None)
+    else:
+        recommended_action = CLASS_ACTIONS[name]
+        ood_reason = None
+
     METRICS.observe_prediction(name, sum(r.latency_ms for r in results))
     return {
         "predicted_class_index": idx,
         "predicted_class_name": name,
         "description": CLASS_DESCRIPTIONS[name],
         "aggregated_probabilities": {n: float(agg[i]) for i, n in enumerate(CLASS_NAMES)},
-        "recommended_action": CLASS_ACTIONS[name],
+        "recommended_action": recommended_action,
         "n_windows": len(windows),
         "aggregation_method": req.aggregation,
         "model_version": __version__,
+        # Aggregated plausibility gate (additive, backward-compatible).
+        "ood_flag": aggregate_ood,
+        "ood_windows": n_ood,
+        "ood_fraction": round(ood_fraction, 4),
+        "ood_reason": ood_reason,
+        "abstain": aggregate_ood,
     }

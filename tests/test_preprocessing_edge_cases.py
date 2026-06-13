@@ -235,3 +235,70 @@ class TestNumericalStability:
             assert np.all(np.isfinite(np_out[ch]))
             # Per-channel z-score brings them to comparable scale; HP modifies std
             assert 0.5 < np_out[ch].std() < 1.5
+
+
+class TestFloat32OverflowFiniteness:
+    """Kill-shot #3: a value finite in float64 but overflowing to Inf on the
+    float32 cast must be REJECTED, not silently propagated to a NaN prediction.
+
+    Root cause (pre-fix): validate_signal checked finiteness in the input dtype
+    (float64) BEFORE casting to the float32 serving dtype. A magnitude >= the
+    float32 max (~3.4e38) is finite in float64, passed the check, then overflowed
+    to +/-Inf after the cast; the z-score produced NaN and predict() returned
+    class=normal confidence=nan stop_machine=False on corrupted input.
+
+    Fix: cast to float32 FIRST, then check finiteness ("cast-then-verify").
+    """
+
+    @pytest.mark.filterwarnings("ignore::RuntimeWarning")
+    def test_positive_overflow_to_inf_rejected(self):
+        """A single 1e39 sample (> float32 max) overflows to +Inf -> rejected."""
+        rng = np.random.default_rng(0)
+        sig = rng.standard_normal((NUM_CHANNELS, 3000)).astype(np.float64)
+        sig[0, 1500] = 1e39  # overflows float32 -> inf
+        with pytest.raises(SignalValidationError, match="NaN or Inf"):
+            validate_signal(sig)
+
+    @pytest.mark.filterwarnings("ignore::RuntimeWarning")
+    def test_negative_overflow_to_inf_rejected(self):
+        """A single -1e39 sample overflows to -Inf after the float32 cast."""
+        rng = np.random.default_rng(1)
+        sig = rng.standard_normal((NUM_CHANNELS, 3000)).astype(np.float64)
+        sig[1, 200] = -1e39
+        with pytest.raises(SignalValidationError, match="NaN or Inf"):
+            validate_signal(sig)
+
+    @pytest.mark.filterwarnings("ignore::RuntimeWarning")
+    def test_just_above_float32_max_rejected(self):
+        """3.5e38 is just above the float32 max (3.4028e38) -> Inf -> rejected."""
+        rng = np.random.default_rng(2)
+        sig = rng.standard_normal((NUM_CHANNELS, 3000)).astype(np.float64)
+        sig[0, 100] = 3.5e38
+        with pytest.raises(SignalValidationError, match="NaN or Inf"):
+            validate_signal(sig)
+
+    def test_uniform_1e38_rejected_as_stuck(self):
+        """A signal filled with 1e38 stays finite in float32 (below the max) but
+        is constant after the cast (the float64 noise is negligible at 1e38
+        scale), so it is rejected by the stuck-sensor check. Either way the
+        corrupted input never reaches the model — the kill-shot is closed."""
+        rng = np.random.default_rng(3)
+        sig = np.full((NUM_CHANNELS, 3000), 1e38, dtype=np.float64)
+        sig += rng.standard_normal((NUM_CHANNELS, 3000))  # lost to float precision
+        with pytest.raises(SignalValidationError):
+            validate_signal(sig)
+
+    @pytest.mark.filterwarnings("ignore::RuntimeWarning")
+    def test_overflow_does_not_yield_nan_prediction(self):
+        """End-to-end: an overflowing signal raises (does NOT produce a NaN-conf
+        'normal' verdict). Exercises the full preprocess_signal path."""
+        import torch as _torch
+
+        from aion_nexus import InferenceEngine, create_aion_nexus
+        _torch.manual_seed(0)
+        eng = InferenceEngine(create_aion_nexus())
+        rng = np.random.default_rng(4)
+        sig = rng.standard_normal((NUM_CHANNELS, 3000)).astype(np.float64)
+        sig[0, 1000] = 1e39
+        with pytest.raises(SignalValidationError):
+            eng.predict(sig)

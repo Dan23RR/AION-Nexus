@@ -1,5 +1,14 @@
 # Model Card — AION-NEXUS v2.2
 
+> **What this model actually estimates (read first).** The 4 output classes are a **positional
+> life-stage** label: `degradation_pct = file_idx / (total_files − 1)`, quantized into 4 bins.
+> They are **NOT an independently diagnosed fault type**. This is **degradation-stage / RUL
+> estimation, not fault-type diagnosis.** Every use of "severity", "fault diagnosis", or "class"
+> below should be read through this caveat. "Fault diagnosis" in older copy is a misnomer.
+>
+> **Honesty pointers:** retracted/corrected claims → [RETRACTIONS.md](RETRACTIONS.md);
+> exact reproduction steps and known-non-reproducible numbers → [docs/reproduce.md](docs/reproduce.md).
+
 ## Model details
 
 - **Name**: AION-NEXUS
@@ -7,7 +16,7 @@
 - **Architecture**: Multi-Scale Temporal CNN + Channel Attention + Bidirectional GRU + 3-layer MLP classifier
 - **Parameters**: 1,061,724 (4.1 MB FP32)
 - **Input**: 2-channel vibration signal, 2,560 samples (0.1 s @ 25.6 kHz)
-- **Output**: 4-class softmax probability distribution (normal, early, medium, advanced)
+- **Output**: 4-class softmax probability distribution over **positional life-stages** (normal, early, medium, advanced = degradation-stage bins, **not diagnosed fault types** — see headline caveat)
 - **License**: Apache 2.0
 - **Author**: Daniel Culotta
 - **Contact**: daniel.culotta@gmail.com
@@ -23,10 +32,21 @@ tamper-evident certificate).
 **What v3 is NOT (§6.31):** a higher in-distribution classifier. v1's FEMTO in-distribution
 F1=0.884 is unbeaten by v3 for that task (v3 full-transfer to unseen machines ≈ 0.55).
 
-**What v3 IS:** the cross-domain few-shot backbone, validated under leave-one-bearing-out and
-**cross-DATASET** (FEMTO↔MFPT↔CWRU):
-- 10-shot macro-F1 **0.91–1.00** across all dataset pairs — **binary health (2-class) task, vs a weak random-init control** (random-init 0.5–0.8); not a 4-class severity result
-- 10-shot LOBO severity F1 ≈ 0.78 on unseen FEMTO bearings. (Scaled run 9,315/400ep: within
+**What v3 IS:** the cross-domain few-shot backbone, evaluated under a (transductive) held-out-bearing
+protocol and **cross-DATASET** (FEMTO↔MFPT↔CWRU):
+- 10-shot macro-F1 **0.91–1.00** across all dataset pairs — **binary health (2-class) task, vs a weak random-init control** (random-init 0.5–0.8); not a 4-class severity result.
+  **Triviality caveat (new):** this binary cross-rig task is **matched by a non-ML threshold on
+  kurtosis** calibrated on the same 10 samples (≈ 0.911 mean macro-F1; 1.000 on FEMTO→CWRU).
+  So 0.91–1.00 does **NOT** demonstrate the substrate's value — the value must be proven on
+  4-class severity, not on binary health.
+- 10-shot held-out-bearing severity F1 ≈ 0.78 (precisely 0.783 ± 0.041, see benchmarks) on
+  held-out FEMTO bearings. **TRANSDUCTIVE, not clean LOBO (new caveat):** the SSL encoder is
+  contrastively pretrained on a corpus (`cache_corpus_full.npz`) that **includes the held-out
+  bearings (Bearing1_5 / 2_5 / 3_3) as unlabeled data** — `substrate_corpus.py` iterates all 11
+  RTF bearings with no exclusion. The encoder has therefore seen the held-out bearings' signals;
+  only their labels were withheld. A clean nested-LOBO SSL (re-pretrain excluding the held-out
+  bearing) has **not** been run. Do **not** quote 0.783 as leave-one-bearing-out without the
+  word "transductive". (Scaled run 9,315/400ep: within
   noise → architecture-saturated. **v3.1** — a 2.6× bigger net + hybrid masked⊕contrastive —
   was tested and ALSO did not improve beyond noise (10-shot 0.801, +0.018) → the lever is
   **data diversity** (more rigs: Paderborn/NASA-IMS), NOT model size. v3.1 not promoted; v3
@@ -40,7 +60,7 @@ behind certified inference. Checkpoint: `checkpoints/aion_nexus_substrate_v3.pth
 
 ## Intended use
 
-Predictive maintenance of rolling-element bearings on rotating machinery. Diagnosis of bearing degradation severity from vibration accelerometer data to inform maintenance scheduling.
+Predictive maintenance of rolling-element bearings on rotating machinery. **Estimation of bearing degradation stage (a positional life-stage / RUL proxy — not fault-type diagnosis; see headline caveat)** from vibration accelerometer data to inform maintenance scheduling.
 
 ### Primary use cases
 
@@ -106,11 +126,20 @@ Predictive maintenance of rolling-element bearings on rotating machinery. Diagno
 | Benchmark | F1 macro | Accuracy | Std (over runs) | Source file |
 |---|---|---|---|---|
 | FEMTO validation | 0.898 | 89.5% | n/a (single split) | `final_results.json` |
-| FEMTO test | 0.884 | 88.1% | n/a (single split) | `cross_validation_results.json` |
+| FEMTO test (**stratified-random split**) | 0.884 | 88.1% | n/a (single split) | `cross_validation_results.json` |
+| **Honest LOBO (held-out bearing)** — v6 | **0.352** | — | **0.112** (LOBO folds) | see `PERFORMANCE_BENCHMARKS.md` |
 | MFPT zero-shot | 0.615 | 79.8% | n/a (single eval) | `cross_validation_results.json` |
 | MFPT few-shot (10 samples/class) | 0.672 | 87.3% | 0.006 (3 runs) | `mfpt_sensitivity_results.json` |
 
 These numbers were extracted from result-log JSON files generated by the original training and evaluation runs. Cross-source agreement confirms the numbers are not transcription artifacts.
+
+> **Read the 0.884 honestly.** FEMTO test 0.884 is a **stratified-random split** — windows from
+> every bearing appear in both train and test, so it measures **in-distribution** performance,
+> not generalization to a new bearing. The honest generalization signal is the **LOBO row:
+> v6 = 0.352 ± 0.112** when a whole bearing is held out. **A clean v1 LOBO is still pending**
+> (only a weaker per-bearing breakdown of the existing v1 checkpoint exists — 0.9218 ± 0.0426 —
+> which is NOT LOBO because that checkpoint saw samples from every bearing during training). Do
+> not present 0.884 as evidence the model generalizes to an unseen bearing.
 
 > **MFPT zero-shot 0.615 — reproducibility caveat (2026-06-04)**: this number is from the
 > October 2025 evaluation logs and is **not currently reproducible from the shipped code**:

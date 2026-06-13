@@ -172,6 +172,90 @@ def evaluate_via_directory_scan(engine, root: Path, max_samples: int | None = No
     }
 
 
+# ---- MFPT loader: read the real *.mat structure ------------------------
+
+def evaluate_mfpt_mat(engine, root: Path, max_samples: int | None = None,
+                      num_classes: int = 4) -> dict:
+    """Load MFPT *.mat files and run the model on them as a *load/smoke* check.
+
+    The MFPT distribution ships `.mat` files (not `.csv`). Each file holds a
+    `bearing` struct with a single-channel signal `gs` (we duplicate it to the
+    2 channels the model expects, per the FAQ Q25 workaround).
+
+    HONESTY CAVEAT — why this is NOT a labelled F1 evaluation:
+      MFPT filenames encode FAULT TYPE (baseline / InnerRaceFault /
+      OuterRaceFault), but AION-NEXUS predicts a 4-class LIFE-STAGE / SEVERITY
+      index (0=normal ... 3=advanced). Fault-type labels do NOT map to the
+      severity taxonomy, so computing an "F1 vs the 4 severity classes" here
+      would be meaningless. We therefore report the *prediction distribution*
+      and prove the data flows end-to-end, but emit NO F1 and NO PASS. The
+      historical MFPT zero-shot F1=0.615 used a separate windowing/selection
+      recipe that is documented as lost (see docs/reproduce.md); it is NOT
+      reproduced by this loader.
+    """
+    try:
+        import scipy.io as sio
+    except ImportError as exc:
+        return {"path": "MFPT_mat", "status": "scipy_unavailable",
+                "n_samples": 0, "error": str(exc)}
+
+    mat_files = sorted(root.rglob("*.mat"))
+    if not mat_files:
+        return {"path": "MFPT_mat", "status": "no_mat_files", "n_samples": 0,
+                "message": f"no *.mat under {root}"}
+
+    sigs = []
+    fault_types: list[str] = []
+    WINDOW = 2560  # noqa: N806 — constant-style local, intentional
+    for mf in mat_files:
+        try:
+            m = sio.loadmat(str(mf))
+            if "bearing" not in m:
+                continue
+            bearing = m["bearing"]
+            gs = np.asarray(bearing["gs"][0, 0]).astype(np.float32).reshape(-1)
+            if gs.size < WINDOW:
+                continue
+            # One non-overlapping window per file keeps the smoke check fast.
+            seg = gs[:WINDOW]
+            # Single-channel -> duplicate to 2 channels (FAQ Q25 workaround).
+            sig = np.stack([seg, seg], axis=0).astype(np.float32)
+            sigs.append(sig)
+            name = mf.name.lower()
+            if name.startswith("baseline"):
+                fault_types.append("baseline")
+            elif "innerrace" in name:
+                fault_types.append("inner_race")
+            elif "outerrace" in name:
+                fault_types.append("outer_race")
+            else:
+                fault_types.append("unknown")
+            if max_samples and len(sigs) >= max_samples:
+                break
+        except Exception:
+            continue
+
+    if not sigs:
+        return {"path": "MFPT_mat", "status": "no_samples", "n_samples": 0,
+                "message": f"found {len(mat_files)} .mat files but none yielded a usable window"}
+
+    results = engine.predict_batch(sigs)
+    y_pred = [int(r.predicted_class_index) for r in results]
+    pred_dist = [y_pred.count(c) for c in range(num_classes)]
+
+    # status = "loaded_no_labels": data flows, but no severity ground truth.
+    return {
+        "path": "MFPT_mat",
+        "status": "loaded_no_labels",
+        "n_samples": len(sigs),
+        "n_mat_files": len(mat_files),
+        "severity_prediction_distribution": pred_dist,
+        "fault_type_counts": {ft: fault_types.count(ft) for ft in sorted(set(fault_types))},
+        "note": ("MFPT labels are fault-TYPE; model predicts severity-STAGE. "
+                 "No F1 computed (label taxonomies differ). Data load verified."),
+    }
+
+
 # ---- Loader with HP-filter (matches training pipeline) ------------
 
 def load_signal_csv_original(path: str | Path):
@@ -402,15 +486,37 @@ def main() -> int:
         else:
             _logger.warning("Path A skipped: aion-data-repo / femto-root / metadata unavailable")
 
-    # MFPT (Path B style)
+    # MFPT: the real distribution ships *.mat. Try the .mat loader first; if a
+    # custom labelled *_classN.csv tree is present, also do the directory scan.
     if args.mfpt:
         mfpt = Path(args.mfpt)
-        if mfpt.exists():
-            ev = evaluate_via_directory_scan(engine, mfpt, max_samples=args.max_samples)
-            ev["name"] = "MFPT_zero_shot"
-            summary["evaluations"].append(ev)
-            if ev.get("status") == "ok":
-                _logger.info("MFPT zero-shot: F1=%.4f n=%d", ev["f1_macro"], ev["n_samples"])
+        if not mfpt.exists():
+            _logger.warning("MFPT path does not exist: %s", mfpt)
+        else:
+            mat_files = list(mfpt.rglob("*.mat"))
+            csv_labelled = any(re.search(r"_class\d+", p.name) for p in mfpt.rglob("*.csv"))
+            ran_any = False
+            if mat_files:
+                ev = evaluate_mfpt_mat(engine, mfpt, max_samples=args.max_samples)
+                ev["name"] = "MFPT_mat_load"
+                summary["evaluations"].append(ev)
+                ran_any = True
+                if ev.get("status") == "loaded_no_labels":
+                    _logger.info("MFPT .mat load OK: n=%d (no F1 — fault-type labels != severity classes). "
+                                 "Pred dist=%s", ev["n_samples"],
+                                 ev.get("severity_prediction_distribution"))
+                else:
+                    _logger.warning("MFPT .mat load status=%s: %s",
+                                    ev.get("status"), ev.get("message", ""))
+            if csv_labelled:
+                ev = evaluate_via_directory_scan(engine, mfpt, max_samples=args.max_samples)
+                ev["name"] = "MFPT_zero_shot"
+                summary["evaluations"].append(ev)
+                ran_any = True
+                if ev.get("status") == "ok":
+                    _logger.info("MFPT zero-shot: F1=%.4f n=%d", ev["f1_macro"], ev["n_samples"])
+            if not ran_any:
+                _logger.warning("MFPT: neither *.mat nor labelled *_classN.csv found under %s", mfpt)
 
     # FEMTO native (direct scan with HP-filter loader)
     if args.femto:
@@ -439,34 +545,74 @@ def main() -> int:
             "MFPT_zero_shot":    {"f1": 0.615, "tol": 0.02,
                                    "label": "MFPT zero-shot"},
         }
-    overall_pass = True
+    # A PASS must mean: at least one published number was actually checked
+    # against a real evaluation AND matched. Loads with no labels, empty test
+    # sets, import failures, etc. NEVER count as a verification and NEVER PASS.
+    n_checked = 0          # evaluations compared against a published number
+    n_verified = 0         # of those, the ones that matched within tolerance
+    n_deviation = 0
+    n_data_produced = 0    # evaluations that produced *any* usable signal load
     for ev in summary["evaluations"]:
+        status = ev.get("status")
+        # Track that at least *some* real data ran through the model.
+        if status in ("ok", "VERIFIED", "DEVIATION", "loaded_no_labels") and ev.get("n_samples", 0) > 0:
+            n_data_produced += 1
+
         key = ev.get("path") or ev.get("name")
         pub = PUBLISHED.get(key)
-        if not pub or ev.get("status") not in ("ok",):
+        if not pub or status not in ("ok",):
             continue
         delta = abs(ev["f1_macro"] - pub["f1"])
         ok = delta <= pub["tol"]
         ev["published_f1"] = pub["f1"]
         ev["delta"] = delta
         ev["status"] = "VERIFIED" if ok else "DEVIATION"
+        n_checked += 1
+        if ok:
+            n_verified += 1
+        else:
+            n_deviation += 1
         _logger.info("  %s: %.4f vs published %.4f -> %s (delta %.4f)",
                      pub["label"], ev["f1_macro"], pub["f1"], ev["status"], delta)
-        if not ok:
-            overall_pass = False
+
+    summary["verification_summary"] = {
+        "n_evaluations": len(summary["evaluations"]),
+        "n_checked_against_published": n_checked,
+        "n_verified": n_verified,
+        "n_deviation": n_deviation,
+        "n_data_produced": n_data_produced,
+    }
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(summary, indent=2, default=str))
     _logger.info("Saved: %s", out)
 
-    if not overall_pass:
-        _logger.error("VERIFICATION FAILED.")
+    # ---- Decide exit status — PASSED is reserved for a real verification ----
+    if n_deviation > 0:
+        _logger.error("VERIFICATION FAILED: %d published number(s) deviated beyond tolerance.",
+                      n_deviation)
         return 1
-    if not summary["evaluations"]:
-        _logger.warning("No evaluations ran. Provide --aion-data-repo + --femto-root + --metadata.")
+
+    if n_checked == 0:
+        # Nothing was compared against a published number. This is NOT a PASS.
+        if n_data_produced > 0:
+            _logger.warning(
+                "NO VERIFICATION PERFORMED: %d evaluation(s) loaded data but none "
+                "could be checked against a published number "
+                "(e.g. MFPT .mat has fault-type labels, not severity classes). "
+                "Nothing verified. To reproduce F1=0.884 provide "
+                "--aion-data-repo + --femto-root + --metadata (Path A).",
+                n_data_produced)
+            return 3
+        _logger.error(
+            "NO SAMPLES EVALUATED — nothing verified. "
+            "Provide a real dataset: Path A (--aion-data-repo + --femto-root + "
+            "--metadata) for F1=0.884, or --femto for a native FEMTO scan.")
         return 2
-    _logger.info("VERIFICATION PASSED.")
+
+    _logger.info("VERIFICATION PASSED: %d/%d published number(s) reproduced within tolerance.",
+                 n_verified, n_checked)
     return 0
 
 

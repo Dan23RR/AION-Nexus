@@ -4,6 +4,64 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] — 2026-06-12 (Red-team rebuild)
+
+An adversarial red team attacked the project from seven angles (security, robustness,
+reproducibility, science, business, thesis) and confirmed real kill-shots with reproductions.
+This release closes the confirmed engineering kill-shots and discloses the three weaknesses the
+project had not yet self-declared. See [`RETRACTIONS.md`](RETRACTIONS.md).
+
+### Security
+- **Denial-of-service on `/predict_long_signal` closed**: a single ~200 KB request
+  (`window=2560, stride=1` → ~8941 windows) used to peg a CPU worker for >115 s. `LongSignalRequest`
+  now caps `signal` length, requires `window ≥ 2560` and `stride > 0`, and rejects any request whose
+  estimated window count exceeds `AION_MAX_WINDOWS` (default 5000) **before** any numpy allocation —
+  the attack vector now returns `422` in <0.4 s.
+- **Ragged-input crash closed**: a body like `{"signal":[[1,2,3],[1]]}` raised `ValueError` inside
+  `np.asarray` and leaked a `500` + stack trace. Both `/predict` and `/predict_long_signal` now wrap
+  the conversion and return a clean `400`.
+- **`/predict_batch` file-count cap**: `AION_MAX_BATCH_FILES` (default 256) → `413` past the limit
+  (each file was already individually size-capped).
+
+### Added
+- **Signal-plausibility / OOD gate** (`aion_nexus/ood.py`): a lightweight, **honest** heuristic
+  (spectral flatness + crest factor + per-channel std) that flags inputs implausible as bearing
+  vibration — pure noise, a disconnected/saturated sensor, a near-constant trace. When flagged,
+  `predict()`/`predict_batch()` set `ood_flag`/`ood_score`/`ood_reason`/`abstain` and the
+  `recommended_action` **abstains** (no automated stop/inspection escalation) while preserving the raw
+  class/confidence. This closes the red-team finding that white noise was classified as an imminent
+  fault with 0.79 mean confidence. Tunable via `AION_OOD_*` env vars. It is explicitly **not** a
+  learned OOD detector — see the module docstring; thresholds are tuned on FEMTO/PRONOSTIA and must be
+  re-validated for other sensor classes.
+
+### Fixed
+- **NaN-to-"no action" path closed**: `validate_signal` now casts to `float32` **before** the
+  finiteness check, so values that overflow `float32` to `Inf` (magnitude ≳ 3.4e38) are rejected with
+  an actionable error instead of silently propagating `NaN` into a `class="normal"` verdict.
+
+### Documentation honesty (three previously-undisclosed weaknesses)
+- **Substrate v3 LOBO 10-shot 0.783 is transductive, not clean LOBO**: the SSL encoder was pretrained
+  on a corpus that *includes* the held-out bearings (unlabeled). Every occurrence of 0.783 now carries
+  this caveat; the clean nested-LOBO re-pretrain is pre-registered (in the R&D workbook).
+- **Cross-dataset binary-health 0.91–1.00 is matched by a trivial non-ML kurtosis threshold** (≈0.911).
+  Documented; the substrate's value claim is moved to 4-class severity, not binary health.
+- **The 4-class labels are positional** (`degradation_pct = file_idx/(total−1)`, binned), i.e. a
+  degradation-stage / RUL proxy — **not** an independently diagnosed fault type. The README and model
+  card now say this next to the headline, not in an appendix. The honest LOBO number (v6
+  0.352 ± 0.112) sits next to 0.884 in the first table.
+
+### Reproducibility
+- `examples/sample_signal.csv` is now a valid ≥2560-sample 2-channel signal (was a 10-row placeholder
+  with a comment on row 11 that crashed the README quickstart).
+- `verify_checkpoint.py` no longer prints "VERIFICATION PASSED" when zero samples were evaluated
+  (the MFPT `*.mat` vs `*.csv` mismatch produced a deceptive pass); it now exits non-zero with a clear
+  message. `docs/reproduce.md` states honestly what runs from a clean public clone vs what needs the
+  external FEMTO dataset.
+
+### Changed
+- Package version → **2.3.0**. Tests: 127 → **160** (OOD, float32-overflow, and kill-shot regression
+  suites added). `ruff` clean.
+
 ## [2.2.0] — 2026-06-11 (Enterprise hardening)
 
 ### Security

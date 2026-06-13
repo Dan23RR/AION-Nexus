@@ -10,6 +10,7 @@ The single test that exercises the "no engine" code path saves and restores
 state in its own scope.
 """
 import os
+import time
 
 import numpy as np
 import pytest
@@ -339,3 +340,184 @@ class TestErrorHandling:
     def test_missing_signal_field_returns_4xx(self, client):
         r = client.post("/predict", json={"wrong_field": [[1, 2, 3]]})
         assert 400 <= r.status_code < 500
+
+
+# ---- Red-team kill-shots: DoS, ragged-list 500, robustness -------------------
+
+class TestKillShotDosLongSignal:
+    """Kill-shot #1: /predict_long_signal CPU-DoS via huge signal + tiny stride.
+
+    A ~11.5k-sample signal at stride=1 expands to ~8941 windows, each a full
+    model forward, pinning a worker for >115 s. The schema-level window-count
+    cap (AION_MAX_WINDOWS) must reject this BEFORE any allocation/forward, fast.
+    """
+
+    def test_dos_long_signal_rejected_fast(self, client):
+        # The exact red-team attack: ~11.5k samples, stride=1 -> ~8941 windows.
+        rng = np.random.default_rng(0)
+        sig = rng.standard_normal((2, 11_500)).tolist()
+        t0 = time.perf_counter()
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560, "stride": 1},
+        )
+        elapsed = time.perf_counter() - t0
+        # Rejected at validation (422) — never runs thousands of forwards.
+        assert r.status_code == 422, r.text
+        # Must be fast: schema validation only, no model work. Generous bound to
+        # avoid flakiness on a loaded CI box, but far below the >115 s attack.
+        assert elapsed < 5.0, f"DoS request took {elapsed:.2f}s (should reject fast)"
+
+    def test_dos_respects_custom_max_windows(self, client, monkeypatch):
+        monkeypatch.setenv("AION_MAX_WINDOWS", "10")
+        rng = np.random.default_rng(1)
+        # Non-overlapping windows: 12000 // 2560 ~ 4 windows -> under a cap of 10,
+        # so this should PASS; then a stride=1 over the same length blows past 10.
+        sig = rng.standard_normal((2, 12_000)).tolist()
+        ok = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560},
+        )
+        assert ok.status_code == 200, ok.text
+        bad = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560, "stride": 1},
+        )
+        assert bad.status_code == 422
+
+    def test_zero_stride_rejected(self, client):
+        rng = np.random.default_rng(2)
+        sig = rng.standard_normal((2, 6000)).tolist()
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560, "stride": 0},
+        )
+        # stride must be > 0 (gt=0) — rejected at validation, no infinite loop.
+        assert r.status_code == 422
+
+    def test_tiny_window_rejected(self, client):
+        rng = np.random.default_rng(3)
+        sig = rng.standard_normal((2, 6000)).tolist()
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 1, "stride": 1},
+        )
+        # window must be >= 2560 — blocks the window=0/1 stride-explosion attack.
+        assert r.status_code == 422
+
+    def test_normal_long_signal_still_works(self, client):
+        """A legitimate multi-second request is unaffected by the cap."""
+        rng = np.random.default_rng(4)
+        sig = rng.standard_normal((2, 12_000)).tolist()
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["n_windows"] >= 4
+
+
+class TestKillShotRaggedList:
+    """Kill-shot #2: a ragged signal list ([[1,2,3],[1]]) makes np.asarray raise
+    ValueError BEFORE the engine try/except -> previously an unhandled 500 with a
+    stacktrace. Must now be a clean 400."""
+
+    def test_ragged_list_predict_returns_400(self, client):
+        # Long enough to look real if it parsed, but the rows are ragged.
+        sig = [[1.0, 2.0, 3.0], [1.0]]
+        r = client.post("/predict", json={"signal": sig})
+        assert r.status_code == 400, r.text
+        assert "ragged" in r.json()["detail"].lower() or "malformed" in r.json()["detail"].lower()
+
+    def test_ragged_list_long_signal_returns_400(self, client):
+        sig = [[1.0, 2.0, 3.0], [1.0, 2.0]]
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560},
+        )
+        # Either a clean 400 (ragged caught in handler) or 422 (schema window
+        # check on the short signal) — both are non-500, actionable rejections.
+        assert r.status_code in (400, 422), r.text
+        assert r.status_code != 500
+
+    def test_ragged_does_not_500(self, client):
+        """Explicitly assert NO 500 for the canonical red-team payload."""
+        r = client.post("/predict", json={"signal": [[1, 2, 3], [1]]})
+        assert r.status_code != 500
+
+
+class TestKillShotOodAbstain:
+    """Kill-shot #4: white noise must NOT escalate to an automated action.
+    The /predict response now carries ood_flag/abstain and a no-escalation
+    recommended_action for implausible inputs."""
+
+    def test_noise_response_abstains(self, client):
+        rng = np.random.default_rng(0)
+        sig = rng.standard_normal((2, 2560)).tolist()
+        r = client.post("/predict", json={"signal": sig})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ood_flag"] is True
+        assert body["abstain"] is True
+        assert body["recommended_action"]["alert_level"] == 0
+        assert body["recommended_action"]["stop_machine"] is False
+
+    def test_ood_fields_present_in_response(self, client):
+        rng = np.random.default_rng(1)
+        sig = rng.standard_normal((2, 2560)).tolist()
+        body = client.post("/predict", json={"signal": sig}).json()
+        for key in ("ood_flag", "ood_score", "ood_reason", "abstain"):
+            assert key in body
+
+    def test_noise_long_signal_does_not_escalate(self, client):
+        """Kill-shot #4 on the AGGREGATED path: a multi-second white-noise
+        recording must not escalate /predict_long_signal to an automated action.
+
+        Regression guard: the handler used to derive recommended_action straight
+        from CLASS_ACTIONS[aggregated_class], ignoring the per-window abstain, so
+        pure noise escalated to alert_level >= 1 even though every window was
+        individually flagged OOD. The aggregated OOD verdict must now abstain.
+        """
+        rng = np.random.default_rng(0)
+        sig = (rng.standard_normal((2, 7680)) * 0.5).tolist()  # 3 windows of noise
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # Majority of windows are noise -> aggregated gate must fire.
+        assert body["ood_flag"] is True
+        assert body["abstain"] is True
+        assert body["ood_windows"] == body["n_windows"]
+        assert body["ood_fraction"] == 1.0
+        # The action must NOT escalate: alert_level 0, no stop / inspection.
+        action = body["recommended_action"]
+        assert action["alert_level"] == 0
+        assert action["stop_machine"] is False
+        assert action.get("schedule_inspection", False) is False
+        assert action.get("abstain") is True
+
+    def test_real_long_signal_still_escalates_normally(self, client):
+        """The aggregated OOD gate must be a tight net: a plausible (spectrally
+        structured) signal still gets its normal, possibly-escalating action and
+        is NOT spuriously abstained.
+
+        Uses a strongly tonal signal (low spectral flatness, like real bearing
+        vibration) so the gate does NOT fire and recommended_action is the
+        class-derived action (whatever class the model picks)."""
+        t = np.linspace(0, 0.1, 7680, endpoint=False)
+        # Multi-tone + small noise: spectrally peaky => flatness well below 0.45.
+        ch = (np.sin(2 * np.pi * 120 * t) + 0.5 * np.sin(2 * np.pi * 320 * t)
+              + 0.05 * np.random.default_rng(3).standard_normal(7680))
+        sig = np.stack([ch, ch * 0.9]).tolist()
+        r = client.post(
+            "/predict_long_signal",
+            json={"signal": sig, "aggregation": "mean", "window": 2560},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ood_flag"] is False
+        assert body["abstain"] is False
+        # Action present and not forced to the abstain shape.
+        assert "alert_level" in body["recommended_action"]

@@ -68,10 +68,21 @@ def validate_signal(signal: np.ndarray) -> np.ndarray:
             f"Expected {NUM_CHANNELS} channels; got shape {signal.shape}"
         )
 
+    # Cast to float32 FIRST, then check finiteness (kill-shot #3: cast-then-check).
+    # The serving dtype is float32. A finite-in-float64 value with |x| >= ~3.4e38
+    # overflows to +/-Inf on the float32 cast; checking finiteness in float64
+    # BEFORE the cast lets such a value pass, after which it becomes Inf, the
+    # z-score yields NaN, and predict() silently returns class=normal conf=nan
+    # stop_machine=False on corrupted input. Casting first makes the overflow
+    # observable here and rejected with an actionable error.
+    signal = signal.astype(np.float32, copy=False)
     # Check NaN/Inf BEFORE center-crop so anomalies in any portion of the
     # input signal are caught (not silently dropped by cropping).
     if not np.all(np.isfinite(signal)):
-        raise SignalValidationError("Signal contains NaN or Inf values")
+        raise SignalValidationError(
+            "Signal contains NaN or Inf values (after float32 cast; note that "
+            "magnitudes >= ~3.4e38 overflow to Inf in float32 and are rejected here)"
+        )
 
     n = signal.shape[1]
     if n < SIGNAL_LENGTH:
