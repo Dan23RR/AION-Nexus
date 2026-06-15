@@ -22,6 +22,7 @@ Two architecture versions supported, both verified against published numbers:
 `InferenceEngine.from_checkpoint()` auto-detects the architecture from the
 checkpoint's state_dict keys; no flag required for the common case.
 """
+from aion_nexus.compliance import compliance_evidence, evidence_card
 from aion_nexus.config import (
     CLASS_DESCRIPTIONS,
     CLASS_NAMES,
@@ -31,6 +32,7 @@ from aion_nexus.config import (
     SAMPLING_RATE_HZ,
     SIGNAL_LENGTH,
 )
+from aion_nexus.degradation import DegradationEstimate, estimate_degradation
 from aion_nexus.few_shot import FewShotAdapter
 from aion_nexus.inference import InferenceEngine, PredictionResult
 from aion_nexus.model import AIONNexus, create_aion_nexus
@@ -44,6 +46,12 @@ from aion_nexus.substrate_v3 import (
     create_substrate_v3,
 )
 from aion_nexus.temporal_attention import TemporalSelfAttention
+from aion_nexus.verify import (
+    Certificate,
+    ConformalCalibrator,
+    Verifier,
+    verify_certificate,
+)
 from aion_nexus.version import __version__
 
 __all__ = [
@@ -58,6 +66,11 @@ __all__ = [
     # Engine + utilities
     "InferenceEngine", "PredictionResult", "FewShotAdapter",
     "preprocess_signal", "validate_signal",
+    # Degradation-stage (honest coarse positional proxy, NOT calibrated RUL)
+    "DegradationEstimate", "estimate_degradation",
+    # Substrate Core: model-agnostic verification & certification layer
+    "Verifier", "Certificate", "ConformalCalibrator", "verify_certificate",
+    "compliance_evidence", "evidence_card",
     # Constants
     "CLASS_NAMES", "CLASS_DESCRIPTIONS", "NUM_CLASSES",
     "SIGNAL_LENGTH", "NUM_CHANNELS", "SAMPLING_RATE_HZ", "MODEL_PARAM_COUNT",

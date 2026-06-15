@@ -175,6 +175,87 @@ Verified numbers (§6.31 honest framing):
 See `MODEL_CARD.md` ("v3 substrate backbone") and `PERFORMANCE_BENCHMARKS.md`
 ("Substrate v3") for the full tables and caveats.
 
+## Verified inference (Substrate Core)
+
+The accurate classifier is the commodity; the **scarce, defensible layer is the
+independent verification of that prediction** (see `AION_NEXUS_RD/14_MARKET_VISION_2032.md`).
+`aion_nexus.verify` (Substrate Core) brings that layer into the public package: a
+**model-agnostic** wrapper that sits above ANY classifier (our v1 BiGRU, v6, the v3
+substrate encoder, or a third-party model) and turns raw probabilities into an
+**auditable certificate**.
+
+The pattern is **model proposes, verifier + conformal dispose, certificate records**:
+
+1. **The model proposes** a probability vector (raw classifier output, preserved unchanged).
+2. **A conformal verifier disposes** a verdict via a distribution-free prediction set:
+   - `CERTIFIED` — the conformal set is a singleton and the top probability clears the
+     abstain threshold (a confident, coverage-controlled label).
+   - `REVIEW` — the set has more than one label (genuine ambiguity; a human decides).
+   - `ABSTAIN` — the top probability is below the threshold (do not act).
+3. **A `Certificate` records** the decision: verdict, conformal set, calibration
+   parameters, a `content_hash` anyone can recompute, an `input_sha256` binding it to
+   the exact signal, and an `authentication` field (`NONE` or `HMAC-SHA256`).
+
+```python
+import numpy as np
+from aion_nexus import InferenceEngine
+from aion_nexus.config import CLASS_NAMES
+from aion_nexus.verify import Verifier, verify_certificate
+
+engine = InferenceEngine.from_checkpoint("checkpoints/aion_nexus_v1.pth")
+
+# Calibrate ONCE on a held-out, in-distribution split (probs + true labels).
+verifier = Verifier(alpha=0.1, class_names=CLASS_NAMES)
+verifier.calibrate(probs_calib, labels_calib)
+
+# Per prediction: model proposes -> verifier disposes -> certificate.
+pred  = engine.predict(signal)
+probs = np.array([pred.probabilities[n] for n in CLASS_NAMES])
+cert  = verifier.certify(probs, input_signal=signal, model_id="aion-nexus-v1")
+
+print(cert.verdict)              # CERTIFIED | REVIEW | ABSTAIN
+print(cert.conformal_set_names)  # e.g. ['medium'] (singleton) or ['early','medium']
+print(cert.authentication)       # NONE (integrity only) | HMAC-SHA256 (tamper-evident)
+verify_certificate(cert)         # re-audit integrity (+ authenticity if a key is set)
+```
+
+A complete, runnable end-to-end walk-through is in
+[`examples/05_verified_inference.py`](./examples/05_verified_inference.py).
+
+### Honest caveats (read before quoting any of this)
+
+These are not fine print — they are the product. A false claim here destroys the
+credibility the verifier exists to provide.
+
+- **Conformal coverage holds ONLY under exchangeability.** The `1 - alpha` coverage
+  guarantee is valid only when calibration and serving data are exchangeable.
+  **Cross-bearing / cross-machine deployment breaks exchangeability and VOIDS the
+  guarantee** — the sets may under-cover. Calibrate per-bearing, or treat coverage as
+  advisory and monitor empirical coverage. The assumption travels on every certificate
+  via the calibrator's `coverage_valid_under` field.
+- **Tamper-evident ONLY with an HMAC key.** With env `VERIFY_HMAC_KEY` set, certificates
+  (and the audit chain) carry `authentication = HMAC-SHA256` and are forgery-resistant.
+  **Without a key, `authentication = NONE` — an integrity hash only, NOT tamper-evident
+  against an adversary who holds this source code.** The certificate states this honestly
+  in its `authentication` field; do not claim tamper-evidence in `NONE` mode.
+- **Degradation-stage, not time-to-failure.** `aion_nexus.degradation` reports a
+  **positional degradation stage** (the same 4 life-stage bins) with a conformal set —
+  **NOT a calibrated RUL in hours**. See the headline caveat on positional labels.
+- **Evidence toward EU AI Act, NOT compliance.** `aion_nexus.compliance.compliance_evidence(cert)`
+  maps the certificate to Art.12 (logging / reconstructability), Art.14 (human oversight),
+  and Art.15 (accuracy / robustness). It **provides evidence toward** those articles; it
+  does **NOT** make the system "EU AI Act compliant" or "certified compliant" — compliance
+  is an organizational/process result, not something a single certificate can assert. The
+  `/predict_degradation` endpoint returns the degradation-stage estimate with its conformal
+  set under the same caveats.
+
+> All headline performance caveats above still apply: the 4 classes are **positional
+> life-stage labels** (not diagnosed fault types); `0.884` is an **in-distribution
+> stratified-random split**, with honest generalization at **LOBO 0.352 ± 0.112 (v6)**;
+> and the substrate `0.783 ± 0.041` 10-shot number is **transductive (SSL leakage of the
+> held-out bearings), not a clean LOBO**. Verification does not change any of these — it
+> makes the model **honest about when not to trust it**.
+
 ## Limitations and scope
 
 This product is intended for **rolling-element bearing diagnosis on rotating machinery**. Out-of-scope tasks where performance has been documented to degrade significantly:
@@ -192,6 +273,9 @@ This product is intended for **rolling-element bearing diagnosis on rotating mac
 - [`docs/architecture.md`](./docs/architecture.md) — layer-by-layer architecture.
 - [`docs/api_reference.md`](./docs/api_reference.md) — full REST API spec.
 - [`docs/troubleshooting.md`](./docs/troubleshooting.md) — common issues.
+- [`examples/05_verified_inference.py`](./examples/05_verified_inference.py) — end-to-end
+  **Verified inference (Substrate Core)**: model proposes, conformal verifier disposes,
+  auditable certificate + EU AI Act evidence, with the honest caveats inline.
 
 ## License
 

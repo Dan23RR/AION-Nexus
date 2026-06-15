@@ -60,6 +60,40 @@ class BatchPredictResponse(BaseModel):
     total_latency_ms: float
 
 
+class DegradationEstimateSchema(BaseModel):
+    """First-class degradation-STAGE estimate (honest coarse positional proxy).
+
+    HONESTY CONTRACT (mirrors aion_nexus.degradation.DegradationEstimate): the
+    stage is a COARSE positional proxy of the FEMTO run-to-failure life fraction
+    (4 bands), NOT a calibrated time-to-failure / RUL in hours or cycles. The
+    ``disclaimer`` field always carries this statement. ``conformal_stage_set``
+    coverage is valid ONLY under exchangeability — cross-bearing/cross-machine
+    deployment breaks it and voids the marginal guarantee (``coverage_caveat``).
+    """
+
+    stage_ordinal: int = Field(..., ge=0, le=3)
+    stage_label: str
+    degradation_index: float = Field(..., ge=0.0, le=1.0)
+    stage_probabilities: dict[str, float]
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    conformal_stage_set: list[int] | None = None
+    conformal_stage_labels: list[str] | None = None
+    calibrated: bool = False
+    abstain: bool = False
+    abstain_reason: str | None = None
+    coverage_caveat: str | None = None
+    disclaimer: str
+
+
+class PredictDegradationResponse(PredictResponse):
+    """``/predict_degradation`` response: the full predict contract plus the
+    additive first-class ``degradation`` estimate. Inheriting from
+    :class:`PredictResponse` keeps the prediction fields byte-identical to
+    ``/predict`` (additive, non-breaking)."""
+
+    degradation: DegradationEstimateSchema
+
+
 class HealthResponse(BaseModel):
     status: Literal["healthy", "degraded", "down"]
     version: str

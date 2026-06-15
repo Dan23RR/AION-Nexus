@@ -60,7 +60,23 @@ behind certified inference. Checkpoint: `checkpoints/aion_nexus_substrate_v3.pth
 
 ## Intended use
 
-Predictive maintenance of rolling-element bearings on rotating machinery. **Estimation of bearing degradation stage (a positional life-stage / RUL proxy — not fault-type diagnosis; see headline caveat)** from vibration accelerometer data to inform maintenance scheduling.
+Predictive maintenance of rolling-element bearings on rotating machinery, in two
+complementary modes:
+
+1. **Degradation-stage estimation.** From vibration accelerometer data, estimate the
+   bearing's **degradation stage** — a positional life-stage / RUL proxy, **not
+   fault-type diagnosis** (see headline caveat) — to inform maintenance scheduling.
+   Surfaced as a first-class capability via `aion_nexus.degradation` (a
+   `DegradationEstimate`: the positional stage plus a conformal set) and the
+   `/predict_degradation` endpoint.
+
+2. **Verified inference (Substrate Core).** Wrap the classifier in the model-agnostic
+   verification layer (`aion_nexus.verify`): a conformal prediction set + abstain logic
+   turn each raw probability vector into an auditable `Certificate` with a
+   `CERTIFIED / REVIEW / ABSTAIN` verdict. The defensible value is **independent
+   verification — telling the operator when NOT to trust the model** — not a higher
+   accuracy number. The certificate maps to EU AI Act **evidence** (Art.12/14/15) via
+   `aion_nexus.compliance.compliance_evidence` (evidence toward, NOT a compliance claim).
 
 ### Primary use cases
 
@@ -68,9 +84,28 @@ Predictive maintenance of rolling-element bearings on rotating machinery. **Esti
 - Fleet-wide bearing health assessment
 - Predictive maintenance scheduling
 - Anomaly screening on streaming sensor data
+- **Auditable, certified maintenance decisions** — the certificate (CERTIFIED/REVIEW/ABSTAIN)
+  as the deliverable, with an append-only audit trail for Art.12-style logging evidence
 
-### Not designed for
+### Out of scope
 
+This system is explicitly NOT, and must not be presented as:
+
+- **Fault-type diagnosis.** The 4 classes are a positional degradation stage
+  (`degradation_pct = file_idx / (total − 1)` quantized into 4 bins), **not an
+  independently diagnosed fault type**. It does not identify *which* defect is present.
+- **RUL in calibrated time units.** `aion_nexus.degradation` reports a degradation
+  **stage** with a conformal set, **NOT a remaining-useful-life in hours/cycles**. Any
+  time-to-failure read-off would be uncalibrated and is not supported.
+- **A declaration of EU AI Act (or any) compliance.** The certificate and
+  `compliance_evidence` **provide evidence toward** Art.12/14/15; they do **NOT** make the
+  system "compliant" or "certified compliant". Compliance is an organizational/process
+  result, not something a model or a single certificate asserts.
+- **A coverage guarantee outside exchangeability.** The conformal `1 - alpha` coverage
+  holds ONLY under exchangeability of calibration and serving data; cross-bearing /
+  cross-machine deployment **breaks it** and the guarantee is void (sets may under-cover).
+- **Tamper-evidence without a key.** Certificates are tamper-evident (HMAC-SHA256) ONLY
+  when `VERIFY_HMAC_KEY` is set; otherwise `authentication = NONE` (integrity hash only).
 - Diagnosis of other rotating-machinery faults (gears, shafts, couplings, lubrication)
 - Acoustic emission or thermal sensor inputs
 - Sampling rates below 10 kHz

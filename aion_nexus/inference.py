@@ -25,6 +25,7 @@ from aion_nexus.config import (
     LOW_CONFIDENCE_THRESHOLD,
     NUM_CLASSES,
 )
+from aion_nexus.degradation import DegradationEstimate, estimate_degradation
 from aion_nexus.model import create_aion_nexus
 from aion_nexus.model_v6 import create_aion_nexus_v6
 from aion_nexus.ood import OODConfig, OODResult, check_signal_plausibility
@@ -70,6 +71,11 @@ class PredictionResult:
     ood_score: float = 0.0
     ood_reason: str | None = None
     abstain: bool = False
+    # Additive first-class degradation-STAGE output (backward-compatible: None on
+    # the plain predict()/predict_batch() path). Populated only by
+    # predict_degradation(); honest coarse positional stage proxy, NOT a
+    # calibrated RUL. See aion_nexus.degradation.DegradationEstimate.
+    degradation: DegradationEstimate | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -360,6 +366,47 @@ class InferenceEngine:
                 abstain=ood.ood_flag,
             ))
         return results
+
+    @torch.no_grad()
+    def predict_degradation(
+        self, signal: np.ndarray, *, calibrator=None
+    ) -> PredictionResult:
+        """Predict and attach a first-class degradation-STAGE estimate.
+
+        Runs the SAME pipeline as :meth:`predict` (preprocess + classifier +
+        plausibility gate) and additionally derives a
+        :class:`~aion_nexus.degradation.DegradationEstimate` from the classifier's
+        probabilities, returned in the ``degradation`` field of the result. Every
+        other field of :class:`PredictionResult` is identical to ``predict``, so
+        this never changes or breaks the existing prediction contract — it is a
+        purely additive output.
+
+        IMPORTANT (honesty): the degradation stage is a COARSE positional proxy
+        (4 life-fraction bands from the FEMTO run-to-failure labelling), NOT a
+        calibrated time-to-failure / RUL in hours or cycles. See
+        :mod:`aion_nexus.degradation`.
+
+        Args:
+            signal: numpy array, shape [2, N] or [N, 2] with N >= 2560.
+            calibrator: optional FITTED
+                :class:`~aion_nexus.verify.ConformalCalibrator`. When provided,
+                the estimate includes a coverage-controlled ``conformal_stage_set``
+                (valid only under exchangeability — cross-bearing/cross-machine
+                breaks it) and abstains on an ambiguous (non-singleton) set. When
+                ``None``, only the point estimate is returned, with
+                ``calibrated=False`` (honest "not calibrated" path).
+
+        Returns:
+            PredictionResult with the ``degradation`` field populated.
+        """
+        result = self.predict(signal)
+        result.degradation = estimate_degradation(
+            result.probabilities,
+            calibrator=calibrator,
+            ood_flag=result.ood_flag,
+            ood_reason=result.ood_reason,
+        )
+        return result
 
     @torch.no_grad()
     def extract_features(self, signal: np.ndarray) -> np.ndarray:

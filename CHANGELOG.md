@@ -4,6 +4,52 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] — 2026-06-15 (Substrate Core: verification & certification as a product)
+
+Brings the verification/certification layer — the defensible value layer of the
+[2032 market vision](../AION_NEXUS_RD/14_MARKET_VISION_2032.md) — from R&D into the public
+package, as a model-agnostic, first-class capability. The honest reframe (degradation-stage /
+RUL proxy, not fault-type diagnosis) is now the product's stated intent.
+
+### Added — Substrate Core (`aion_nexus.verify`)
+- **Model-agnostic verification layer** that wraps *any* classifier's probabilities:
+  `Verifier(alpha).calibrate(probs, labels).certify(probs) -> Certificate`.
+  - `ConformalCalibrator` — split-conformal (APS/LAC) prediction sets with finite-sample
+    quantile, never an empty set, and an explicit `coverage_valid_under` field stating the
+    marginal-coverage guarantee holds **only under exchangeability** (cross-bearing / cross-machine
+    breaks it — voids the guarantee).
+  - `Certificate` — `content_hash` over a canonical payload that **binds the human-readable labels**
+    (`predicted_name`, `conformal_set_names`), so a label-only tamper breaks integrity. HMAC-SHA256
+    signature when `VERIFY_HMAC_KEY` is set (`authentication = "HMAC-SHA256"`); otherwise
+    `authentication = "NONE"` — integrity hash only, **not tamper-evident** against an adversary.
+  - `verify_certificate()` returns a single safe `trusted` flag (`integrity_ok AND authenticity ==
+    "VERIFIED"`) so consumers can't be fooled by checking authenticity alone.
+  - `CertificateStore` — append-only hash-chained JSONL (HMAC chain when keyed; keyless
+    re-concatenation is detected as `FORGED` by a key-holder).
+- **Top-level exports**: `Verifier`, `Certificate`, `ConformalCalibrator`, `verify_certificate`,
+  `compliance_evidence`, `evidence_card`.
+
+### Added — degradation-stage / RUL (first-class, honest)
+- `aion_nexus.degradation` + `InferenceEngine.predict_degradation()` + `POST /predict_degradation`:
+  expose a **coarse positional degradation stage** (early/mid/advanced/critical) with a conformal
+  stage-set, the honest product of the positional FEMTO labels. Explicitly documented as **not** a
+  calibrated time-to-failure / RUL-in-hours.
+
+### Added — EU AI Act evidence mapping (`aion_nexus.compliance`)
+- `compliance_evidence(certificate)` / `evidence_card()` map the certificate's fields to
+  **EU AI Act Art. 12 (record-keeping), Art. 14 (human oversight), Art. 15 (accuracy/robustness)**,
+  ISO 13381-1:2025 and ISO/IEC 42001 — strictly as *"provides evidence toward"*. A `_FORBIDDEN_CLAIMS`
+  guard and a test fail the build if the words "compliant"/"conforme"/"certified compliant" ever
+  appear. `docs/COMPLIANCE_MAPPING.md` carries a strong disclaimer: this is **not** a declaration or
+  third-party conformity assessment.
+
+### Changed
+- README + MODEL_CARD: new "Verified inference (Substrate Core)" section; intended use reframed to
+  degradation-stage estimation + verified inference; out-of-scope clarified (not fault-type diagnosis,
+  not calibrated RUL, not a compliance declaration).
+- Version → **2.4.0**. Tests: 160 → **229** (verify 20, degradation 31, compliance 18). `ruff` clean.
+  The §6.31 honesty constraints are **enforced by tests**, not only prose.
+
 ## [2.3.0] — 2026-06-12 (Red-team rebuild)
 
 An adversarial red team attacked the project from seven angles (security, robustness,

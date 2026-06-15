@@ -53,6 +53,7 @@ from server.schemas import (
     ErrorResponse,
     HealthResponse,
     LongSignalRequest,
+    PredictDegradationResponse,
     PredictResponse,
 )
 
@@ -440,6 +441,45 @@ def predict(body: JsonSignalRequest) -> PredictResponse:
 
     METRICS.observe_prediction(result.predicted_class_name, result.latency_ms)
     return PredictResponse(**result.to_dict())
+
+
+@app.post(
+    "/predict_degradation",
+    response_model=PredictDegradationResponse,
+    responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    dependencies=[Depends(_require_api_key)],
+)
+def predict_degradation(body: JsonSignalRequest) -> PredictDegradationResponse:
+    """Predict on a single window AND return a first-class degradation-STAGE estimate.
+
+    Reuses the exact ``/predict`` pipeline (preprocess + classifier + plausibility
+    gate) and adds the additive ``degradation`` object — the honest reframe made a
+    product output. Auth, body-size limit and the OOD/abstain gate are inherited
+    from the shared pipeline (an OOD-flagged window abstains in ``degradation``).
+
+    HONESTY: the degradation stage is a COARSE positional proxy of the FEMTO life
+    fraction (4 bands), NOT a calibrated time-to-failure / RUL in hours or cycles
+    — see the ``degradation.disclaimer`` field. No conformal stage set is returned
+    here (the served engine carries no fitted calibrator): ``degradation.calibrated``
+    is False and only the point estimate is provided. For coverage-controlled
+    stage sets, call ``InferenceEngine.predict_degradation(signal, calibrator=...)``
+    with a calibrator fitted on EXCHANGEABLE (e.g. per-bearing) calibration data.
+    """
+    engine = _require_engine()
+    try:
+        signal = np.asarray(body.signal, dtype=np.float32)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            400, f"Malformed signal (ragged or non-numeric rows): {exc}"
+        ) from exc
+
+    try:
+        result = engine.predict_degradation(signal)
+    except SignalValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    METRICS.observe_prediction(result.predicted_class_name, result.latency_ms)
+    return PredictDegradationResponse(**result.to_dict())
 
 
 @app.post(
