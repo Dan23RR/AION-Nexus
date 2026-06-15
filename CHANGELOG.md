@@ -4,6 +4,46 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] — 2026-06-15 (Substrate Core convergence: asymmetric signatures, typed assurance, measured cheating surface)
+
+Converges the best of the sibling `substrate_core` verification kernel (same author,
+the other "Substrate Core of Verifier Labs") into the public `aion_nexus.verify`. These
+three additions close the two weaknesses the red team flagged about the certificate and
+add a capability AION had no analog for. See `AION_NEXUS_RD/17_SUBSTRATE_INTEGRATION_ANALYSIS.md`.
+
+### Added — Ed25519 asymmetric signatures (independent verification, for real)
+- New `aion_nexus.verify.signing`: `ed25519_sign` / `ed25519_verify` /
+  `ed25519_pubkey_from_seed` (seed → deterministic keypair, RFC 8032), plus the existing
+  HMAC helpers. **The verifier holds only the public key and cannot forge** — the property
+  that makes *independent* verification credible (a customer/insurer/auditor verifies with
+  the public key alone). `Certificate` gains `authentication = "Ed25519"` and a `pubkey`
+  field; `seal()` precedence is explicit > `VERIFY_ED25519_SEED` > `VERIFY_HMAC_KEY` > NONE.
+- **Honesty nuance enforced in code**: verifying against the *embedded* public key proves
+  only self-consistency → `authenticity = "SELF-SIGNED"`, **not** trusted. Trust requires
+  the issuer's *expected* public key (`verify_certificate(cert, expected_pubkey=...)` or env
+  `VERIFY_ED25519_PUBKEY`). A stripped-signature downgrade is detected and never trusted.
+- `cryptography` added as a dependency.
+
+### Added — typed assurance lattice (overclaim made structurally impossible)
+- New `aion_nexus.verify.assurance`: ordered tiers `none < empirical < bounded <
+  proven-spec < proven` with `weakest()` / `strongest()` and a rule-of-three residual-risk
+  estimate (with its caveat). A conformal verdict is **always `empirical`** (statistical,
+  exchangeability-dependent); the tier is in the **hashed** payload, so it can't be
+  silently upgraded. `compose_certificates()` takes the **weakest link**, so an empirical
+  component can never be laundered into a "proven" system claim.
+
+### Added — measured cheating surface (`run_cheatbench()`)
+- New `aion_nexus.verify.cheatbench`, adapted from `substrate_core.cheatbench`: runs real
+  attacks against the certificate gate and **measures** each channel CLOSED/OPEN instead of
+  assuming soundness. Four channels (forge-without-key, label-tamper, assurance-overclaim,
+  downgrade-strip-sig) measure as CLOSED (regression-tested); the honest **OPEN** residual —
+  conformal coverage is marginal, not per-instance correctness — is reported openly, never
+  dressed up as closed.
+
+### Changed
+- Version → **2.5.0**. Tests: 229 → **289** (signing 14, assurance 17, +23 verify, cheatbench 6).
+  `ruff` clean. §6.31 honesty constraints remain enforced by tests.
+
 ## [2.4.0] — 2026-06-15 (Substrate Core: verification & certification as a product)
 
 Brings the verification/certification layer — the defensible value layer of the

@@ -193,8 +193,9 @@ The pattern is **model proposes, verifier + conformal dispose, certificate recor
    - `REVIEW` — the set has more than one label (genuine ambiguity; a human decides).
    - `ABSTAIN` — the top probability is below the threshold (do not act).
 3. **A `Certificate` records** the decision: verdict, conformal set, calibration
-   parameters, a `content_hash` anyone can recompute, an `input_sha256` binding it to
-   the exact signal, and an `authentication` field (`NONE` or `HMAC-SHA256`).
+   parameters, a typed **assurance tier**, a `content_hash` anyone can recompute, an
+   `input_sha256` binding it to the exact signal, and an `authentication` field
+   (`NONE`, `HMAC-SHA256`, or `Ed25519`).
 
 ```python
 import numpy as np
@@ -233,11 +234,27 @@ credibility the verifier exists to provide.
   guarantee** — the sets may under-cover. Calibrate per-bearing, or treat coverage as
   advisory and monitor empirical coverage. The assumption travels on every certificate
   via the calibrator's `coverage_valid_under` field.
-- **Tamper-evident ONLY with an HMAC key.** With env `VERIFY_HMAC_KEY` set, certificates
-  (and the audit chain) carry `authentication = HMAC-SHA256` and are forgery-resistant.
-  **Without a key, `authentication = NONE` — an integrity hash only, NOT tamper-evident
-  against an adversary who holds this source code.** The certificate states this honestly
-  in its `authentication` field; do not claim tamper-evidence in `NONE` mode.
+- **Authentication has three honest levels.** `NONE` = integrity hash only, **NOT
+  tamper-evident** against an adversary with this source. `HMAC-SHA256` (env
+  `VERIFY_HMAC_KEY`) = forgery-resistant, but symmetric: **whoever can verify can also
+  forge**. `Ed25519` (env `VERIFY_ED25519_SEED`) = **asymmetric — the verifier holds only
+  the public key and CANNOT forge.** This is what makes *independent* verification real: a
+  customer, insurer, or auditor verifies a certificate with the public key alone, without
+  receiving the power to mint fakes. Verifying against the **embedded** public key only
+  proves self-consistency (`authenticity = SELF-SIGNED`, **not** trusted); pass the
+  issuer's **expected** public key to get `VERIFIED` + `trusted`.
+- **Typed assurance — overclaim is structurally impossible.** Every certificate carries an
+  `assurance` tier on the ordered lattice `none < empirical < bounded < proven-spec <
+  proven`. A conformal verdict is **always `empirical`** (statistical, exchangeability-
+  dependent — never a proof). Composing certificates takes the **weakest link**, so an
+  empirical component can never be laundered into a "proven" system claim. The tier is in
+  the hashed payload, so tampering with it breaks the signature.
+- **We measure the cheating surface, we don't assume it.** `aion_nexus.verify.run_cheatbench()`
+  runs real attacks against the certificate gate and reports each channel CLOSED or OPEN.
+  Four channels (forge-without-key, label-tamper, assurance-overclaim, downgrade) measure as
+  CLOSED; the honest **OPEN** residual is that conformal coverage is *marginal*, not
+  per-instance — a confident in-distribution error would pass as a valid singleton,
+  indistinguishable from a correct one. We surface it rather than hide it.
 - **Degradation-stage, not time-to-failure.** `aion_nexus.degradation` reports a
   **positional degradation stage** (the same 4 life-stage bins) with a conformal set —
   **NOT a calibrated RUL in hours**. See the headline caveat on positional labels.

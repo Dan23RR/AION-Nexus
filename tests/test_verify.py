@@ -15,14 +15,27 @@ import numpy as np
 import pytest
 
 from aion_nexus.verify import (
+    AUTH_ED25519,
     AUTH_HMAC,
     AUTH_NONE,
+    EMPIRICAL,
+    PROVEN,
     CertificateStore,
     ConformalCalibrator,
     Verifier,
+    compose_certificates,
+    ed25519_pubkey_from_seed,
     verify_certificate,
 )
-from aion_nexus.verify.certificate import ENV_HMAC_KEY
+from aion_nexus.verify.certificate import (
+    ENV_ED25519_PUBKEY,
+    ENV_ED25519_SEED,
+    ENV_HMAC_KEY,
+    VERDICT_ABSTAIN,
+    VERDICT_CERTIFIED,
+    VERDICT_REVIEW,
+    Certificate,
+)
 from aion_nexus.verify.conformal import softmax
 
 CLASS_NAMES = ["normal", "early", "medium", "advanced"]
@@ -287,3 +300,280 @@ def test_class_names_length_must_match_calibration(monkeypatch):
     v = Verifier(alpha=0.1, class_names=["a", "b"])     # 2 names, 4 classes
     with pytest.raises(ValueError, match="class_names"):
         v.calibrate(probs[cal], true[cal])
+
+
+# ----------------------------------------------------------------------------- #
+# 7. Assurance tier — conformal is EMPIRICAL, and the tier is HASHED
+# ----------------------------------------------------------------------------- #
+
+def _clean_env(monkeypatch):
+    for k in (ENV_HMAC_KEY, ENV_ED25519_SEED, ENV_ED25519_PUBKEY):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_conformal_verdict_is_empirical(monkeypatch):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]))
+    assert cert.assurance == EMPIRICAL          # never 'proven'
+    assert "exchangeab" in v.assurance_caveat.lower()
+
+
+def test_assurance_is_in_canonical_payload_and_hashed(monkeypatch):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]))
+    assert "assurance" in cert.canonical_payload()
+    # Two certs identical but for the tier must hash differently.
+    c_emp = Certificate(
+        predicted_label=0, predicted_name="normal", conformal_set=[0],
+        conformal_set_names=["normal"], verdict=VERDICT_CERTIFIED, assurance=EMPIRICAL)
+    c_pro = Certificate(
+        predicted_label=0, predicted_name="normal", conformal_set=[0],
+        conformal_set_names=["normal"], verdict=VERDICT_CERTIFIED, assurance=PROVEN)
+    assert c_emp.compute_content_hash() != c_pro.compute_content_hash()
+
+
+def test_assurance_overclaim_breaks_integrity(monkeypatch):
+    """Upgrading the tier empirical->proven without re-sealing must break the hash."""
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    d = cert.as_dict()
+    assert d["assurance"] == EMPIRICAL
+    d["assurance"] = PROVEN                     # silent overclaim
+    res = verify_certificate(d, expected_pubkey=cert.pubkey)
+    assert res["integrity_ok"] is False
+    assert res["trusted"] is False
+
+
+# ----------------------------------------------------------------------------- #
+# 8. Ed25519 — seal, verify against expected pubkey, self-signed, downgrade
+# ----------------------------------------------------------------------------- #
+
+def test_ed25519_seal_verified_and_trusted_against_expected_pubkey(monkeypatch):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    assert cert.authentication == AUTH_ED25519
+    assert cert.signature is not None
+    assert cert.pubkey == ed25519_pubkey_from_seed("issuer-seed")
+    res = verify_certificate(cert, expected_pubkey=cert.pubkey)
+    assert res["integrity_ok"] is True
+    assert res["authenticity"] == "VERIFIED"
+    assert res["trusted"] is True
+
+
+def test_ed25519_without_expected_pubkey_is_self_signed_not_trusted(monkeypatch):
+    """The embedded pubkey proves self-consistency only — issuer NOT verified."""
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    res = verify_certificate(cert)              # no expected pubkey
+    assert res["integrity_ok"] is True
+    assert res["authenticity"] == "SELF-SIGNED"
+    assert res["trusted"] is False              # CRITICAL: not trusted
+    assert "issuer NOT verified" in res["detail"]
+
+
+def test_ed25519_wrong_expected_pubkey_is_forged(monkeypatch):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    attacker_pub = ed25519_pubkey_from_seed("attacker-seed")
+    res = verify_certificate(cert, expected_pubkey=attacker_pub)
+    assert res["authenticity"] == "FORGED"
+    assert res["trusted"] is False
+
+
+def test_ed25519_expected_pubkey_from_env(monkeypatch):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    monkeypatch.setenv(ENV_ED25519_PUBKEY, cert.pubkey)
+    res = verify_certificate(cert)              # expected key from env
+    assert res["authenticity"] == "VERIFIED"
+    assert res["trusted"] is True
+
+
+def test_ed25519_downgrade_strip_sig_not_trusted(monkeypatch):
+    """Strip signature + declare NONE -> verifier with expected key must not trust."""
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    expected_pub = cert.pubkey
+    d = cert.as_dict()
+    d["signature"] = None
+    d["authentication"] = AUTH_NONE
+    res = verify_certificate(d, expected_pubkey=expected_pub)
+    assert res["trusted"] is False
+
+
+def test_ed25519_tampered_label_breaks_integrity_not_trusted(monkeypatch):
+    """Editing the label leaves the signature valid over the STALE content_hash,
+    but the recomputed payload no longer matches it -> integrity_ok False ->
+    NOT trusted. trusted (the conjunction) is the single safe flag."""
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    d = cert.as_dict()
+    d["predicted_name"] = "advanced"            # tamper: payload no longer hashes to content_hash
+    res = verify_certificate(d, expected_pubkey=cert.pubkey)
+    assert res["integrity_ok"] is False         # recomputed hash != stored content_hash
+    assert res["trusted"] is False              # CRITICAL: never trusted on a label tamper
+
+
+def test_ed25519_tampered_content_hash_is_forged(monkeypatch):
+    """If the attacker also recomputes content_hash to match the forged payload,
+    the signature (which they cannot remake without the seed) no longer matches
+    the new hash -> authenticity FORGED."""
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    d = cert.as_dict()
+    d["predicted_name"] = "advanced"
+    forged = Certificate(**{k: d[k] for k in (
+        "predicted_label", "predicted_name", "conformal_set", "conformal_set_names",
+        "verdict", "alpha", "qhat", "input_sha256", "model_id", "assurance")})
+    d["content_hash"] = forged.compute_content_hash()   # rehash to pass integrity
+    res = verify_certificate(d, expected_pubkey=cert.pubkey)
+    assert res["integrity_ok"] is True          # hash now matches the forged payload
+    assert res["authenticity"] == "FORGED"      # but the signature does not match the new hash
+    assert res["trusted"] is False
+
+
+# ----------------------------------------------------------------------------- #
+# 9. seal() scheme precedence
+# ----------------------------------------------------------------------------- #
+
+def test_seal_precedence_explicit_seed_is_ed25519(monkeypatch):
+    _clean_env(monkeypatch)
+    # explicit arg (seed) wins even when an HMAC env key is also set
+    monkeypatch.setenv(ENV_HMAC_KEY, "hmac-key")
+    v = _fit_verifier(monkeypatch, key="hmac-key")
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), seed="issuer-seed")
+    assert cert.authentication == AUTH_ED25519
+
+
+def test_seal_precedence_env_ed25519_over_hmac(monkeypatch):
+    _clean_env(monkeypatch)
+    monkeypatch.setenv(ENV_HMAC_KEY, "hmac-key")
+    monkeypatch.setenv(ENV_ED25519_SEED, "issuer-seed")
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]))   # auto resolution
+    assert cert.authentication == AUTH_ED25519
+    assert cert.pubkey == ed25519_pubkey_from_seed("issuer-seed")
+
+
+def test_seal_precedence_hmac_when_only_hmac(monkeypatch):
+    _clean_env(monkeypatch)
+    monkeypatch.setenv(ENV_HMAC_KEY, "hmac-key")
+    v = _fit_verifier(monkeypatch, key="hmac-key")
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]))
+    assert cert.authentication == AUTH_HMAC
+    assert cert.pubkey is None
+
+
+def test_seal_scheme_none_forces_unsigned(monkeypatch):
+    _clean_env(monkeypatch)
+    monkeypatch.setenv(ENV_ED25519_SEED, "issuer-seed")
+    v = _fit_verifier(monkeypatch)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]), scheme="none")
+    assert cert.authentication == AUTH_NONE
+    assert cert.signature is None and cert.pubkey is None
+
+
+# ----------------------------------------------------------------------------- #
+# 10. compose_certificates — weakest link governs verdict AND assurance
+# ----------------------------------------------------------------------------- #
+
+def _cert(verdict, assurance=EMPIRICAL):
+    return Certificate(
+        predicted_label=0, predicted_name="normal", conformal_set=[0],
+        conformal_set_names=["normal"], verdict=verdict, assurance=assurance)
+
+
+def test_compose_and_propagates_review(monkeypatch):
+    out = compose_certificates([_cert(VERDICT_CERTIFIED), _cert(VERDICT_REVIEW)], op="and")
+    assert out["verdict"] == VERDICT_REVIEW     # weakest verdict propagates
+    assert out["assurance"] == EMPIRICAL
+
+
+def test_compose_and_propagates_abstain(monkeypatch):
+    out = compose_certificates(
+        [_cert(VERDICT_CERTIFIED), _cert(VERDICT_REVIEW), _cert(VERDICT_ABSTAIN)], op="and")
+    assert out["verdict"] == VERDICT_ABSTAIN    # a single ABSTAIN drags it down
+
+
+def test_compose_and_all_certified(monkeypatch):
+    out = compose_certificates([_cert(VERDICT_CERTIFIED), _cert(VERDICT_CERTIFIED)], op="and")
+    assert out["verdict"] == VERDICT_CERTIFIED
+
+
+def test_compose_assurance_is_weakest_link(monkeypatch):
+    out = compose_certificates(
+        [_cert(VERDICT_CERTIFIED, PROVEN), _cert(VERDICT_CERTIFIED, EMPIRICAL)], op="and")
+    # system assurance can never exceed the weakest evidence
+    assert out["assurance"] == EMPIRICAL
+    assert "weakest" in out["assurance_caveat"].lower()
+
+
+def test_compose_or_takes_strongest_verdict(monkeypatch):
+    out = compose_certificates([_cert(VERDICT_ABSTAIN), _cert(VERDICT_CERTIFIED)], op="or")
+    assert out["verdict"] == VERDICT_CERTIFIED
+    # but the assurance is STILL the weakest link (anti-overclaim invariant)
+    assert out["assurance"] == EMPIRICAL
+
+
+def test_compose_empty_is_abstain_none(monkeypatch):
+    out = compose_certificates([], op="and")
+    assert out["verdict"] == VERDICT_ABSTAIN
+    assert out["n"] == 0
+
+
+# ----------------------------------------------------------------------------- #
+# 11. Certificate store chain with Ed25519
+# ----------------------------------------------------------------------------- #
+
+def test_chain_ed25519_verified_against_expected_pubkey(monkeypatch, tmp_path):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    store = CertificateStore(path=tmp_path / "certs.jsonl", seed="chain-seed")
+    for p in ([0.7, 0.1, 0.1, 0.1], [0.1, 0.7, 0.1, 0.1]):
+        store.append(v.certify(np.array(p), seed="issuer-seed"))
+    pub = ed25519_pubkey_from_seed("chain-seed")
+    integrity_ok, authenticity, broken_at = CertificateStore(
+        path=tmp_path / "certs.jsonl").verify_chain(pubkey=pub)
+    assert integrity_ok is True
+    assert authenticity == "VERIFIED"
+    assert broken_at is None
+
+
+def test_chain_ed25519_self_signed_when_no_expected_pubkey(monkeypatch, tmp_path):
+    """Without an expected pubkey, the Ed25519 chain is integrity-only (UNVERIFIED)."""
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    store = CertificateStore(path=tmp_path / "certs.jsonl", seed="chain-seed")
+    store.append(v.certify(np.array([0.7, 0.1, 0.1, 0.1]), seed="issuer-seed"))
+    integrity_ok, authenticity, _ = CertificateStore(
+        path=tmp_path / "certs.jsonl").verify_chain()       # no key/seed/pubkey
+    assert integrity_ok is True
+    assert authenticity == "UNVERIFIED"
+
+
+def test_chain_ed25519_tamper_detected(monkeypatch, tmp_path):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch)
+    path = tmp_path / "certs.jsonl"
+    store = CertificateStore(path=path, seed="chain-seed")
+    for p in ([0.7, 0.1, 0.1, 0.1], [0.1, 0.7, 0.1, 0.1]):
+        store.append(v.certify(np.array(p), seed="issuer-seed"))
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[0] = lines[0].replace('"normal"', '"advanced"', 1)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    pub = ed25519_pubkey_from_seed("chain-seed")
+    integrity_ok, authenticity, broken_at = CertificateStore(
+        path=path).verify_chain(pubkey=pub)
+    assert integrity_ok is False
+    assert authenticity == "FORGED"
+    assert broken_at == 0

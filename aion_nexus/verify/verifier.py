@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import assurance as _assurance
 from .certificate import (
     VERDICT_ABSTAIN,
     VERDICT_CERTIFIED,
@@ -39,6 +40,18 @@ from .certificate import (
     sha256_signal,
 )
 from .conformal import ConformalCalibrator
+
+# A conformal verdict is EMPIRICAL — statistical, valid only under exchangeability,
+# an ESTIMATE and NEVER a proof. The caveat travels on every certified verdict so
+# the tier is never silently read as something stronger than it is.
+CONFORMAL_ASSURANCE = _assurance.EMPIRICAL
+ASSURANCE_CAVEAT = (
+    "EMPIRICAL: the conformal coverage guarantee is statistical (marginal, "
+    "1 - alpha) and holds ONLY under exchangeability of calibration and serving "
+    "data; cross-bearing / cross-machine deployment breaks it. It bounds the "
+    "MARGINAL miscoverage RATE, not the correctness of any single prediction. "
+    "This is an estimate, NOT a proof — it can never exceed the EMPIRICAL tier."
+)
 
 
 class Verifier:
@@ -98,15 +111,35 @@ class Verifier:
             return self.class_names[idx]
         return str(idx)
 
+    @property
+    def assurance_caveat(self) -> str:
+        """The exchangeability caveat that every conformal (EMPIRICAL) verdict carries."""
+        return ASSURANCE_CAVEAT
+
     def certify(self, probs: np.ndarray, *, input_signal=None,
                 model_id: str | None = None,
-                key: str | bytes | None = None) -> Certificate:
+                key: str | bytes | None = None,
+                seed: str | bytes | None = None,
+                scheme: str = "auto") -> Certificate:
         """Certify ONE sample's probability vector into a sealed :class:`Certificate`.
 
         ``probs`` is a 1-D probability vector (or a single-row 2-D array).
         ``input_signal`` (optional) is hashed into ``input_sha256`` to bind the
-        certificate to its exact input. ``key`` (optional) overrides the env
-        ``VERIFY_HMAC_KEY`` for signing.
+        certificate to its exact input.
+
+        Signing (delegated to :meth:`Certificate.seal`):
+
+        - ``seed`` (optional) — an Ed25519 signing seed; when given the
+          certificate is signed asymmetrically (``scheme`` forced to
+          ``"ed25519"``) and ships an embedded public key for third-party
+          verification. Equivalent to setting env ``VERIFY_ED25519_SEED``.
+        - ``key`` (optional) — overrides env ``VERIFY_HMAC_KEY`` for HMAC signing
+          (kept for backward compatibility; passed straight to ``seal``).
+        - ``scheme`` — ``"auto"`` (default precedence: Ed25519 seed > HMAC key >
+          NONE), or force ``"ed25519"`` / ``"hmac"`` / ``"none"``.
+
+        The verdict's ``assurance`` is fixed to EMPIRICAL: a conformal guarantee
+        is statistical and never a proof. See :pyattr:`assurance_caveat`.
         """
         if not self.is_calibrated:
             raise RuntimeError("call calibrate() before certify()")
@@ -142,5 +175,101 @@ class Verifier:
             qhat=None if self.calibrator.qhat is None else float(self.calibrator.qhat),
             input_sha256=input_sha,
             model_id=model_id,
+            assurance=CONFORMAL_ASSURANCE,   # conformal => EMPIRICAL, never proven
         )
-        return cert.seal(key)
+        # An explicit seed forces the asymmetric (Ed25519) path; otherwise the seal
+        # resolves by precedence (Ed25519 seed env > HMAC key env > NONE).
+        if seed is not None:
+            return cert.seal(seed, scheme="ed25519")
+        return cert.seal(key, scheme=scheme)
+
+
+# --------------------------------------------------------------------------- #
+# Composition algebra — certificates compose, and the weakest link governs.
+# --------------------------------------------------------------------------- #
+
+# Verdict ordering for AND-composition: a composed system is only as safe to act
+# on as its LEAST decisive component. CERTIFIED (act) is strongest; ABSTAIN (do
+# not act) is weakest; REVIEW (human-in-the-loop) sits between. So a single
+# ABSTAIN drags the whole AND to ABSTAIN, a single REVIEW to REVIEW.
+_VERDICT_RANK = {VERDICT_ABSTAIN: 0, VERDICT_REVIEW: 1, VERDICT_CERTIFIED: 2}
+
+
+def compose_certificates(certs, op: str = "and") -> dict:
+    """Compose several certificates into ONE honest system verdict (sound, fail-safe).
+
+    Ported from the substrate_core kernel's ``compose_and`` / ``weakest``: the
+    weakest link governs. Returns a plain dict (NOT a sealed Certificate — a
+    composition is a derived judgement, re-signing is the caller's choice)::
+
+        {"verdict": str,            # composed CERTIFIED | REVIEW | ABSTAIN
+         "assurance": str,          # the WEAKEST tier across the inputs
+         "op": str,                 # "and" | "or"
+         "n": int,                  # number of components
+         "components": [...],       # per-cert (verdict, assurance)
+         "assurance_caveat": str,   # the system can never exceed its weakest tier
+         "detail": str}
+
+    Semantics:
+
+    - ``op="and"`` (a system holds IFF every part holds): the composed verdict is
+      the WEAKEST component verdict — a single REVIEW propagates REVIEW, a single
+      ABSTAIN propagates ABSTAIN. CERTIFIED only if ALL are CERTIFIED.
+    - ``op="or"`` (any one path suffices): the composed verdict is the STRONGEST
+      component verdict.
+
+    In BOTH cases the system ``assurance`` is the WEAKEST tier present (the
+    anti-overclaim invariant: a composition can never be stronger than its
+    weakest evidence). Since a conformal certificate is EMPIRICAL, a system built
+    only from conformal certificates is at most EMPIRICAL — never ``proven``.
+
+    An empty list yields ABSTAIN / NONE (nothing composed -> no evidence).
+    """
+    if op not in ("and", "or"):
+        raise ValueError(f"unknown op {op!r}; expected 'and' or 'or'")
+
+    rows = []
+    verdicts: list[str] = []
+    assurances: list[str] = []
+    for c in certs:
+        d = c.as_dict() if hasattr(c, "as_dict") else dict(c)
+        v = str(d.get("verdict", VERDICT_ABSTAIN))
+        a = str(d.get("assurance", _assurance.NONE))
+        verdicts.append(v)
+        assurances.append(a)
+        rows.append({"verdict": v, "assurance": a})
+
+    if not verdicts:
+        return {
+            "verdict": VERDICT_ABSTAIN,
+            "assurance": _assurance.NONE,
+            "op": op,
+            "n": 0,
+            "components": [],
+            "assurance_caveat": "empty composition: nothing to compose -> no evidence",
+            "detail": "empty composition",
+        }
+
+    # Weakest link on BOTH axes for AND; strongest verdict for OR. Unknown verdicts
+    # rank as ABSTAIN (fail-safe), mirroring assurance.weakest for unknown tiers.
+    if op == "and":
+        verdict = min(verdicts, key=lambda v: _VERDICT_RANK.get(v, 0))
+    else:
+        verdict = max(verdicts, key=lambda v: _VERDICT_RANK.get(v, 0))
+    sys_assurance = _assurance.weakest(assurances)  # always the weakest tier
+
+    return {
+        "verdict": verdict,
+        "assurance": sys_assurance,
+        "op": op,
+        "n": len(verdicts),
+        "components": rows,
+        "assurance_caveat": (
+            f"system assurance = weakest link = {sys_assurance}; "
+            f"{_assurance.describe(sys_assurance)} "
+            "A composition can never exceed its weakest component; conformal "
+            "evidence is EMPIRICAL, so a conformal-only system is never 'proven'."),
+        "detail": (
+            f"compose_{op}: {len(verdicts)} components -> verdict {verdict}, "
+            f"assurance {sys_assurance} (weakest link)"),
+    }

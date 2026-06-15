@@ -28,10 +28,31 @@ Public API
 - :class:`ConformalCalibrator` — the split-conformal core
 - :class:`CertificateStore`    — append-only JSONL audit log with optional chain
 - :func:`verify_certificate`   — audit integrity + authenticity of a certificate
+- :func:`compose_certificates` — compose verdicts; the weakest assurance governs
+- :func:`run_cheatbench`       — MEASURE the cheating surface of the gate
+- Ed25519 signing primitives and the assurance lattice (anti-overclaim tiers)
 """
 from __future__ import annotations
 
+from . import assurance
+from .assurance import (
+    BOUNDED,
+    EMPIRICAL,
+    NONE,
+    PROVEN,
+    PROVEN_SPEC,
+    residual_risk_rule_of_three,
+    strongest,
+    weakest,
+)
+from .assurance import (
+    describe as assurance_describe,
+)
+from .assurance import (
+    rank as assurance_rank,
+)
 from .certificate import (
+    AUTH_ED25519,
     AUTH_HMAC,
     AUTH_NONE,
     CERT_SCHEMA_VERSION,
@@ -42,9 +63,17 @@ from .certificate import (
     sha256_signal,
     verify_certificate,
 )
+from .cheatbench import run_cheatbench
 from .conformal import ConformalCalibrator, ConformalResult, softmax
+from .signing import (
+    ed25519_pubkey_from_seed,
+    ed25519_sign,
+    ed25519_verify,
+    hmac_sign,
+    hmac_verify,
+)
 from .store import CertificateStore, ChainResult
-from .verifier import Verifier
+from .verifier import Verifier, compose_certificates
 
 __all__ = [
     "Verifier",
@@ -54,11 +83,33 @@ __all__ = [
     "CertificateStore",
     "ChainResult",
     "verify_certificate",
+    "compose_certificates",
     "sha256_signal",
     "softmax",
+    # cheatbench
+    "run_cheatbench",
+    # signing primitives
+    "ed25519_pubkey_from_seed",
+    "ed25519_sign",
+    "ed25519_verify",
+    "hmac_sign",
+    "hmac_verify",
+    # assurance lattice
+    "assurance",
+    "NONE",
+    "EMPIRICAL",
+    "BOUNDED",
+    "PROVEN_SPEC",
+    "PROVEN",
+    "weakest",
+    "strongest",
+    "assurance_rank",
+    "assurance_describe",
+    "residual_risk_rule_of_three",
     # constants
     "AUTH_HMAC",
     "AUTH_NONE",
+    "AUTH_ED25519",
     "CERT_SCHEMA_VERSION",
     "VERDICT_CERTIFIED",
     "VERDICT_REVIEW",
