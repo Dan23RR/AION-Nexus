@@ -5,6 +5,8 @@ Endpoints:
     GET  /version              — model + API version
     GET  /metrics              — Prometheus-format metrics
     POST /predict              — single signal as JSON body
+    POST /predict_certified    — single signal -> SIGNED, auditable Certificate
+    POST /verify               — audit a certificate against an expected pubkey
     POST /predict_csv          — single signal as CSV upload (FEMTO format)
     POST /predict_batch        — multiple CSVs in one request
     POST /predict_long_signal  — window-then-aggregate over multi-second signal
@@ -15,10 +17,38 @@ Environment:
     AION_API_KEY          — if set, all endpoints except /health require the
                             X-API-Key header to match it
     AION_MAX_BODY_BYTES   — request body size limit (default 10485760 = 10 MiB)
+    AION_MAX_BATCH_FILES  — max uploads per /predict_batch call (default 256)
+    AION_MAX_BATCH_BYTES  — aggregate byte budget per /predict_batch call
+                            (default 52428800 = 50 MiB)
     AION_CORS_ORIGINS     — comma-separated allowed origins; unset = no CORS
                             middleware (same-origin only). Wildcard "*" disables
                             credentials (never wildcard + credentials).
     AION_LOG_JSON         — "1" enables structured JSON logging with request_id
+
+Certified serving (v2.6.0 — wires the signed certificate into the product):
+    VERIFY_ED25519_SEED       — Ed25519 signing seed; when set, /predict_certified
+                                emits an Ed25519-SIGNED certificate (third-party
+                                verifiable with the public key alone). Without it
+                                the cert is authentication=NONE (integrity-only).
+    VERIFY_HMAC_KEY           — fallback HMAC signing key (symmetric; verifier can
+                                also forge — see aion_nexus.verify.signing).
+    AION_CERT_TTL_SECONDS     — certificate validity window in seconds (default
+                                86400 = 24h). The signature covers the window, so
+                                an expired cert fails verification (anti-replay).
+    AION_CERT_KEY_ID          — opaque id of the signing key, stamped on the cert
+                                (for key rotation / audit).
+    AION_REQUIRE_SIGNED_CERT  — "1" = STRICT: /predict_certified refuses (503) to
+                                emit an unsigned certificate when no key is set.
+    VERIFY_CERT_STORE         — path to the append-only certificate audit log
+                                (default ./certificates.jsonl). Every certified
+                                prediction is appended to the hash-chained store.
+
+Checkpoint pinning (v2.6.0 — attest WHICH weights are serving):
+    AION_CHECKPOINT_SHA256       — expected SHA-256 of the checkpoint file. When
+                                   set, the server refuses to start (non-degraded)
+                                   if the live checkpoint's hash differs.
+    AION_REQUIRE_CHECKPOINT_PIN  — "1" = STRICT: refuse to start unless
+                                   AION_CHECKPOINT_SHA256 is set.
 
 Run:
     AION_CHECKPOINT=checkpoints/aion_nexus_v1.pth \\
@@ -53,8 +83,11 @@ from server.schemas import (
     ErrorResponse,
     HealthResponse,
     LongSignalRequest,
+    PredictCertifiedResponse,
     PredictDegradationResponse,
     PredictResponse,
+    VerifyRequest,
+    VerifyResponse,
 )
 
 # ---- Configuration ----------------------------------------------------------
@@ -68,10 +101,28 @@ CORS_ENV = "AION_CORS_ORIGINS"
 LOG_JSON_ENV = "AION_LOG_JSON"
 MAX_BATCH_FILES_ENV = "AION_MAX_BATCH_FILES"
 DEFAULT_MAX_BATCH_FILES = 256  # cap the number of uploads per /predict_batch call
+# Aggregate BYTE budget across all files in one /predict_batch call. The per-file
+# cap (AION_MAX_BODY_BYTES) and the file-count cap each bound one axis, but 256
+# files just under the body cap could still total gigabytes; this caps the SUM so
+# a batch cannot exhaust memory by staying under both per-axis limits.
+MAX_BATCH_BYTES_ENV = "AION_MAX_BATCH_BYTES"
+DEFAULT_MAX_BATCH_BYTES = 52_428_800  # 50 MiB
 # Pydantic-level cap on the outer signal list ([2, N] or [N, 2] rows). Combined
 # with the byte-level body cap this bounds worst-case parse cost. 262144 samples
 # is ~10.2 s at the FEMTO 25.6 kHz sampling rate.
 MAX_SIGNAL_ROWS = 262_144
+
+# ---- Certified serving config (v2.6.0) --------------------------------------
+ED25519_SEED_ENV = "VERIFY_ED25519_SEED"
+HMAC_KEY_ENV = "VERIFY_HMAC_KEY"
+CERT_TTL_ENV = "AION_CERT_TTL_SECONDS"
+DEFAULT_CERT_TTL_SECONDS = 86_400  # 24h validity window for a served certificate
+CERT_KEY_ID_ENV = "AION_CERT_KEY_ID"
+REQUIRE_SIGNED_CERT_ENV = "AION_REQUIRE_SIGNED_CERT"  # "1" -> strict: refuse unsigned
+
+# ---- Checkpoint pin config (v2.6.0) -----------------------------------------
+CHECKPOINT_SHA256_ENV = "AION_CHECKPOINT_SHA256"           # expected file hash
+REQUIRE_CHECKPOINT_PIN_ENV = "AION_REQUIRE_CHECKPOINT_PIN"  # "1" -> require the pin
 
 # No-escalation action returned when the aggregated plausibility gate abstains on
 # /predict_long_signal (kept structurally identical to the engine's per-window
@@ -209,9 +260,30 @@ METRICS = _Metrics()
 # ---- Engine bootstrap --------------------------------------------------------
 
 def _load_engine(app: FastAPI) -> None:
-    """Load the model checkpoint (called once from the lifespan handler)."""
+    """Load the model checkpoint (called once from the lifespan handler).
+
+    Checkpoint pinning (v2.6.0): if ``AION_CHECKPOINT_SHA256`` is set, the file's
+    hash is verified before loading and a mismatch is a HARD failure (the engine
+    is NOT loaded — degraded mode — so the server cannot silently serve the wrong
+    weights). In STRICT mode (``AION_REQUIRE_CHECKPOINT_PIN=1``) a MISSING pin is
+    itself a hard failure. Default (no pin) is unchanged for backward compat.
+    """
     checkpoint = os.environ.get(CHECKPOINT_ENV, DEFAULT_CHECKPOINT)
     device = os.environ.get("AION_DEVICE", "cpu")
+    expected_sha = os.environ.get(CHECKPOINT_SHA256_ENV) or None
+    require_pin = os.environ.get(REQUIRE_CHECKPOINT_PIN_ENV, "") == "1"
+
+    app.state.expected_checkpoint_sha256 = expected_sha
+
+    if require_pin and not expected_sha:
+        msg = (f"strict checkpoint pinning: {REQUIRE_CHECKPOINT_PIN_ENV}=1 but "
+               f"{CHECKPOINT_SHA256_ENV} is not set. Refusing to start without a "
+               "checkpoint hash to verify.")
+        _logger.error(msg)
+        app.state.engine = None
+        app.state.startup_error = msg
+        return
+
     if not Path(checkpoint).exists():
         _logger.error(
             "Checkpoint not found at %s. Set %s env var or place file in %s.",
@@ -222,8 +294,13 @@ def _load_engine(app: FastAPI) -> None:
         app.state.startup_error = f"Checkpoint not found: {checkpoint}"
         return
     try:
-        app.state.engine = InferenceEngine.from_checkpoint(checkpoint, device=device)
+        # expected_sha (when set) makes from_checkpoint RAISE on a hash mismatch,
+        # so a wrong/tampered checkpoint fails closed -> degraded mode, never served.
+        app.state.engine = InferenceEngine.from_checkpoint(
+            checkpoint, device=device, expected_sha256=expected_sha)
         app.state.startup_error = None
+        if expected_sha:
+            _logger.info("Checkpoint hash pin OK (%s)", expected_sha)
         _logger.info("AION-NEXUS engine ready on %s", device)
     except Exception as exc:
         _logger.exception("Failed to load engine")
@@ -231,10 +308,62 @@ def _load_engine(app: FastAPI) -> None:
         app.state.startup_error = str(exc)
 
 
+def _build_certifier(app: FastAPI) -> None:
+    """Build the calibrated Verifier + certificate store for /predict_certified.
+
+    The Verifier is calibrated on a SMALL synthetic in-distribution set derived
+    from the loaded engine, purely so the conformal API is runnable in the server.
+
+    HONESTY (workspace 6.31): this synthetic calibration is NOT a valid
+    calibration for any real deployment — conformal coverage holds only under
+    exchangeability with the SERVING data, and random windows are not exchangeable
+    with real bearings. A real deployment calibrates on a held-out, in-distribution
+    (ideally per-bearing) split. The certificate's verdict logic, signature and
+    audit trail are real; the *coverage number* from this calibrator is a
+    placeholder. We never claim otherwise.
+    """
+    engine = getattr(app.state, "engine", None)
+    if engine is None:
+        app.state.verifier = None
+        app.state.cert_store = None
+        return
+    try:
+        import numpy as _np
+
+        from aion_nexus.config import CLASS_NAMES
+        from aion_nexus.verify import CertificateStore, Verifier
+
+        rng = _np.random.default_rng(123)
+        probs_list: list = []
+        labels_list: list[int] = []
+        for cls in range(len(CLASS_NAMES)):
+            for _ in range(8):
+                sig = rng.standard_normal((2, 2560)).astype("float32") * 0.5
+                res = engine.predict(sig)
+                p = _np.array([res.probabilities[name] for name in CLASS_NAMES],
+                              dtype=_np.float64)
+                probs_list.append(p)
+                labels_list.append(cls)
+        verifier = Verifier(alpha=0.1, class_names=list(CLASS_NAMES))
+        verifier.calibrate(_np.vstack(probs_list), _np.array(labels_list, dtype=int))
+        app.state.verifier = verifier
+        # The store path resolves from VERIFY_CERT_STORE (env) by default; the
+        # chain link scheme (Ed25519 / HMAC / NONE) is resolved at append time by
+        # the same env precedence the certificate uses.
+        app.state.cert_store = CertificateStore()
+        _logger.info("Certified-serving verifier calibrated (synthetic placeholder).")
+    except Exception:
+        # Never let an optional cert facility block the core prediction service.
+        _logger.exception("Failed to build certified-serving verifier")
+        app.state.verifier = None
+        app.state.cert_store = None
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Startup/shutdown handler (replaces the deprecated @app.on_event)."""
     _load_engine(app)
+    _build_certifier(app)
     yield
 
 
@@ -349,6 +478,7 @@ def version() -> dict:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
+    expected_sha = getattr(app.state, "expected_checkpoint_sha256", None)
     engine = getattr(app.state, "engine", None)
     if engine is None:
         return HealthResponse(
@@ -359,9 +489,12 @@ def health() -> HealthResponse:
             model_param_count=0,
             inference_count=0,
             running_avg_latency_ms=0.0,
+            checkpoint_sha256=None,
+            expected_checkpoint_sha256=expected_sha,
         )
     info = engine.get_health()
-    return HealthResponse(status="healthy", **info)
+    return HealthResponse(
+        status="healthy", expected_checkpoint_sha256=expected_sha, **info)
 
 
 @app.get("/metrics", dependencies=[Depends(_require_api_key)])
@@ -443,6 +576,204 @@ def predict(body: JsonSignalRequest) -> PredictResponse:
     return PredictResponse(**result.to_dict())
 
 
+# ---- Certified serving (v2.6.0): wire the signed certificate into the product
+
+def _require_verifier():
+    """Return the calibrated Verifier, or 503 if certified serving is unavailable."""
+    verifier = getattr(app.state, "verifier", None)
+    if verifier is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Certified serving unavailable: the conformal verifier failed "
+                   "to calibrate at startup (see server logs).",
+        )
+    return verifier
+
+
+def _cert_ttl_seconds() -> int:
+    """Resolve the certificate validity window (seconds) from AION_CERT_TTL_SECONDS."""
+    raw = os.environ.get(CERT_TTL_ENV)
+    if raw is None or raw.strip() == "":
+        return DEFAULT_CERT_TTL_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_CERT_TTL_SECONDS
+    return value if value > 0 else DEFAULT_CERT_TTL_SECONDS
+
+
+def _signing_key_configured() -> bool:
+    """True iff an Ed25519 seed OR an HMAC key is set (so we can SIGN a cert)."""
+    return bool(os.environ.get(ED25519_SEED_ENV) or os.environ.get(HMAC_KEY_ENV))
+
+
+def _weak_ed25519_seed_error() -> str | None:
+    """Return an error string if a configured Ed25519 seed is below the entropy
+    floor, else None.
+
+    The library's ``seal()`` derives keys with the legacy SHA-256 fold for
+    backward compatibility and does NOT reject a weak seed — so the PRODUCT
+    boundary must. A guessable minting seed (the red-team's '1234' kill-shot)
+    would yield a brute-forceable private key and let an attacker mint
+    "trusted" certificates. Here we refuse to sign with it rather than emit a
+    forgeable-looking certificate.
+    """
+    seed = os.environ.get(ED25519_SEED_ENV)
+    if not seed:
+        return None
+    from aion_nexus.verify import assert_strong_seed
+    try:
+        assert_strong_seed(seed)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+@app.post(
+    "/predict_certified",
+    response_model=PredictCertifiedResponse,
+    responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    dependencies=[Depends(_require_api_key)],
+)
+def predict_certified(body: JsonSignalRequest) -> PredictCertifiedResponse:
+    """Predict AND emit a SIGNED, auditable :class:`Certificate` for the decision.
+
+    Reuses the exact ``/predict`` pipeline (preprocess + OOD/plausibility gate +
+    classifier), then runs the calibrated conformal verifier to produce a sealed
+    certificate, APPENDS it to the hash-chained certificate store (audit trail),
+    and returns ``{prediction, certificate, pubkey, verdict}``.
+
+    Signing & honesty (workspace 6.31):
+
+    - With ``VERIFY_ED25519_SEED`` set, the certificate is Ed25519-SIGNED and ships
+      its public key so a third party (auditor / customer / insurer) can verify it
+      OFFLINE with the public key alone — the unique weapon, now wired into the
+      product. ``VERIFY_HMAC_KEY`` is the symmetric fallback.
+    - With NO key configured: in STRICT mode (``AION_REQUIRE_SIGNED_CERT=1``) this
+      refuses with 503 ("signing key not configured"); otherwise it emits a cert
+      with ``authentication = NONE`` and sets an explicit ``warning`` that the cert
+      is integrity-only and NOT tamper-evident. We never silently pretend.
+
+    The certificate carries a validity window (``AION_CERT_TTL_SECONDS``, default
+    24h) bound into the signature, so a replayed/expired cert fails verification.
+    Auth, body-size limit and the OOD gate are inherited from the shared pipeline.
+    """
+    strict = os.environ.get(REQUIRE_SIGNED_CERT_ENV, "") == "1"
+    if strict and not _signing_key_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=("signing key not configured: AION_REQUIRE_SIGNED_CERT=1 but "
+                    f"neither {ED25519_SEED_ENV} nor {HMAC_KEY_ENV} is set. Refusing "
+                    "to emit an unsigned (NOT tamper-evident) certificate."),
+        )
+
+    # Secure-at-the-product-boundary: never MINT with a guessable Ed25519 seed.
+    # The library stays back-compatible (legacy fold), so we enforce the entropy
+    # floor here and refuse rather than hand out a brute-forceable signature.
+    weak_seed_err = _weak_ed25519_seed_error()
+    if weak_seed_err is not None:
+        raise HTTPException(
+            status_code=503,
+            detail=(f"{ED25519_SEED_ENV} is too weak to mint with: {weak_seed_err} "
+                    "Generate a full-entropy seed: "
+                    "python -c \"from aion_nexus.verify import generate_seed; print(generate_seed())\""),
+        )
+
+    engine = _require_engine()
+    verifier = _require_verifier()
+    try:
+        signal = np.asarray(body.signal, dtype=np.float32)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            400, f"Malformed signal (ragged or non-numeric rows): {exc}"
+        ) from exc
+
+    try:
+        result = engine.predict(signal)
+    except SignalValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    # Build the probability vector in the verifier's class order and certify. The
+    # signing scheme resolves by env precedence inside seal (Ed25519 > HMAC > NONE);
+    # the TTL binds a validity window into the signature (anti-replay).
+    from aion_nexus.config import CLASS_NAMES
+    probs = np.array([result.probabilities[name] for name in CLASS_NAMES],
+                     dtype=np.float64)
+    key_id = os.environ.get(CERT_KEY_ID_ENV) or None
+    cert = verifier.certify(
+        probs,
+        input_signal=signal,
+        model_id=f"aion-nexus-{__version__}",
+        ttl_seconds=_cert_ttl_seconds(),
+        key_id=key_id,
+    )
+
+    # Append to the hash-chained audit store (best-effort: a store failure must not
+    # drop the prediction the caller already paid for).
+    store = getattr(app.state, "cert_store", None)
+    if store is not None:
+        try:
+            store.append(cert)
+        except Exception:
+            _logger.exception("Failed to append certificate to the store")
+
+    warning = None
+    from aion_nexus.verify import AUTH_NONE
+    if cert.authentication == AUTH_NONE:
+        warning = ("certificate is UNSIGNED (authentication=NONE): integrity hash "
+                   "only, NOT tamper-evident against an adversary holding the "
+                   f"source. Set {ED25519_SEED_ENV} (Ed25519, third-party "
+                   f"verifiable) or {HMAC_KEY_ENV} (HMAC) to sign it.")
+
+    METRICS.observe_prediction(result.predicted_class_name, result.latency_ms)
+    return PredictCertifiedResponse(
+        prediction=PredictResponse(**result.to_dict()),
+        certificate=cert.as_dict(),
+        pubkey=cert.pubkey,
+        verdict=cert.verdict,
+        warning=warning,
+    )
+
+
+@app.post(
+    "/verify",
+    response_model=VerifyResponse,
+    responses={400: {"model": ErrorResponse}},
+    dependencies=[Depends(_require_api_key)],
+)
+def verify(body: VerifyRequest) -> VerifyResponse:
+    """Audit a certificate's integrity, authenticity AND validity window.
+
+    Delegates to :func:`aion_nexus.verify.verify_certificate`. Supply
+    ``expected_pubkey`` (the issuer's out-of-band Ed25519 public key) to get
+    genuine issuer authentication (``trusted = True`` only then); without it an
+    Ed25519 cert can at most be ``SELF-SIGNED`` (``trusted = False``). The HMAC key
+    (if the cert is HMAC-signed) is read from ``VERIFY_HMAC_KEY`` server-side.
+    ``now_iso`` optionally pins "now" for the validity-window check.
+
+    This endpoint is pure verification: it needs no engine and no secret beyond
+    what the caller / env supplies, so an auditor can call it directly.
+    """
+    from aion_nexus.verify import verify_certificate
+    try:
+        res = verify_certificate(
+            body.certificate,
+            expected_pubkey=body.expected_pubkey,
+            now_iso=body.now_iso,
+        )
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(
+            400, f"Malformed certificate (cannot verify): {exc}") from exc
+    return VerifyResponse(
+        integrity_ok=res["integrity_ok"],
+        authenticity=res["authenticity"],
+        trusted=res["trusted"],
+        detail=res["detail"],
+        expired=res.get("expired"),
+        not_yet_valid=res.get("not_yet_valid"),
+    )
+
+
 @app.post(
     "/predict_degradation",
     response_model=PredictDegradationResponse,
@@ -518,7 +849,14 @@ def predict_csv(file: Annotated[UploadFile, File(description="CSV file")]
     dependencies=[Depends(_require_api_key)],
 )
 def predict_batch(files: Annotated[list[UploadFile], File()]) -> BatchPredictResponse:
-    """Predict on multiple uploaded CSV files in one request."""
+    """Predict on multiple uploaded CSV files in one request.
+
+    Three independent DoS caps bound the request: the file-COUNT cap
+    (``AION_MAX_BATCH_FILES``), the per-file BYTE cap (``AION_MAX_BODY_BYTES``,
+    enforced in ``_read_upload_capped``) and the aggregate BYTE budget across all
+    files (``AION_MAX_BATCH_BYTES``) — the last closes the gap where many files,
+    each just under the per-file cap, sum to gigabytes.
+    """
     if not files:
         raise HTTPException(400, "No files uploaded")
     max_files = int(os.environ.get(MAX_BATCH_FILES_ENV, str(DEFAULT_MAX_BATCH_FILES)))
@@ -528,17 +866,38 @@ def predict_batch(files: Annotated[list[UploadFile], File()]) -> BatchPredictRes
             detail=f"Too many files: {len(files)} > limit {max_files} "
                    f"(configure via {MAX_BATCH_FILES_ENV}).",
         )
+    max_batch_bytes = int(
+        os.environ.get(MAX_BATCH_BYTES_ENV, str(DEFAULT_MAX_BATCH_BYTES)))
     engine = _require_engine()
 
     signals = []
+    total_bytes = 0
     for f in files:
         contents = _read_upload_capped(f)
+        # Aggregate byte budget: enforced as files stream in, BEFORE parsing, so
+        # an over-budget batch is rejected without doing the parse work.
+        total_bytes += len(contents)
+        if total_bytes > max_batch_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Batch payload too large: aggregate {total_bytes} bytes "
+                       f"exceeds the limit of {max_batch_bytes} bytes "
+                       f"(configure via {MAX_BATCH_BYTES_ENV}).",
+            )
         try:
             arr = np.loadtxt(io.BytesIO(contents), delimiter=",")
+            # EXPLICIT 2D guard, aligned with _csv_to_signal. A 1-column CSV parses
+            # to a 1-D array, so the old `arr.shape[1]` raised IndexError that was
+            # only caught by accident below; check ndim up front for a clear error.
+            if arr.ndim != 2:
+                raise ValueError(
+                    f"CSV must be 2D, got {arr.ndim}D shape {arr.shape}")
             if arr.shape[1] >= 6:
-                signals.append(arr[:, [4, 5]].T)
+                signals.append(arr[:, [4, 5]].T)  # FEMTO format
             else:
                 signals.append(arr.T if arr.shape[0] != 2 else arr)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(400, f"CSV parse error in {f.filename}: {exc}") from exc
 

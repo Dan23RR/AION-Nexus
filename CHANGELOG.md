@@ -4,6 +4,59 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] — 2026-06-15 (Orizzonte 0: the verification weapon, wired into the product and enterprise-grade)
+
+A demolition against the bar "could Siemens/Beckhoff/SKF ignore this?" found that the one
+defensible asset — independent signed verification — was shipped **unloaded and not wired
+into the running product** (the server emitted unsigned JSON). This release makes it real,
+secure-by-default, and attestable end-to-end. See `AION_NEXUS_RD/18_PATH_TO_UNIGNORABLE.md`.
+
+### ⚠️ Breaking change
+- **Signature format**: signatures now cover a `signing_payload` (`content_hash | not_before
+  | valid_until | jti | key_id`) instead of the bare `content_hash`, so expiry/identity are
+  tamper-evident. A certificate signed by v2.5.0 will **not** verify under v2.6.0.
+  `CERT_SCHEMA_VERSION` → `1.1`. The decision `content_hash` itself is unchanged and stays
+  deterministic (reproducibility preserved).
+
+### Added — the certificate, wired into the running product
+- **`POST /predict_certified`**: runs the `/predict` pipeline, then emits a **signed,
+  auditable `Certificate`**, appends it to the hash-chained store, and returns
+  `{prediction, certificate, pubkey, verdict}`. With `VERIFY_ED25519_SEED` set it is
+  Ed25519-signed and third-party verifiable with the public key alone.
+- **`POST /verify`**: re-runs `verify_certificate` (integrity / authenticity / trusted /
+  expired) so an auditor can confirm a verdict offline.
+- `examples/06_certified_serving.py`: end-to-end — issuer signs, an auditor with **only the
+  public key** verifies, tamper/expiry are rejected.
+
+### Added — key management at the enterprise bar
+- **Entropy floor enforced at the product boundary**: a weak `VERIFY_ED25519_SEED` (the
+  red-team's `1234` kill-shot) is **refused with 503** rather than minting a brute-forceable
+  key. `generate_seed()` (CSPRNG), `assert_strong_seed()`, and a pluggable `Signer`
+  interface (`LocalEd25519Signer` strict-by-default, `HmacSigner`, KMS/HSM-ready).
+- **Signed expiry / anti-replay**: certificates carry `not_before` / `valid_until` / `jti` /
+  `key_id` bound into the signature (`AION_CERT_TTL_SECONDS`, default 24h); expired or
+  replayed certs fail verification. `valid_until` etc. are NOT in `content_hash`, so
+  reproducibility is preserved (the design rule that makes anti-replay + determinism coexist).
+- **Secure-by-default**: `AION_REQUIRE_SIGNED_CERT=1` refuses unsigned certs; otherwise an
+  unsigned cert ships `authentication=NONE` with an explicit `warning` (never a silent claim).
+
+### Added — attest WHICH weights and WHICH dependencies
+- **Checkpoint pinning**: `AION_CHECKPOINT_SHA256` makes the server refuse to start if the
+  live checkpoint's hash differs; `AION_REQUIRE_CHECKPOINT_PIN=1` requires the pin. Hash
+  exposed in `/health`.
+- **Supply chain**: `scripts/generate_sbom.py` (CycloneDX, stdlib fallback),
+  `audit_supply_chain.py --strict` is **fail-closed**, `cryptography` upper-bounded,
+  `docs/SUPPLY_CHAIN.md` (hash-pinning + cosign/SLSA guidance). "Verifiability applies to us too."
+
+### Fixed
+- `/predict_batch`: aggregate byte budget (`AION_MAX_BATCH_BYTES`, default 50 MiB) and an
+  explicit `ndim==2` check (a 1-column CSV now returns a clean 400, not an accidental
+  `IndexError`).
+
+### Changed
+- Version → **2.6.0**. Tests: 289 → **334**. `ruff` clean. §6.31 honesty enforced by tests
+  (incl. a security-regression test that the weak-seed boundary stays closed).
+
 ## [2.5.0] — 2026-06-15 (Substrate Core convergence: asymmetric signatures, typed assurance, measured cheating surface)
 
 Converges the best of the sibling `substrate_core` verification kernel (same author,

@@ -110,6 +110,11 @@ class InferenceEngine:
         self.ood_config = ood_config if ood_config is not None else OODConfig.from_env()
         self._latency_ms_running_avg = 0.0
         self._inference_count = 0
+        # SHA-256 of the checkpoint file this engine was loaded from, when known
+        # (set by from_checkpoint). None for an engine built from an in-memory
+        # model (tests, random weights) — there is no file to pin. Surfaced in
+        # get_health() so a serving layer can attest WHICH checkpoint is live.
+        self.checkpoint_sha256: str | None = None
 
     def _apply_ood_gate(
         self, signal: np.ndarray, idx: int, conf: float, band: str
@@ -200,15 +205,18 @@ class InferenceEngine:
                 "See checkpoints/README.md for how to obtain a model file."
             )
 
+        # Compute the file hash once, up front: it is BOTH the integrity check
+        # (when expected_sha256 is supplied) AND the attestation we record on the
+        # engine so a serving layer can report WHICH checkpoint is live (/health).
+        actual_sha256 = _sha256_file(checkpoint_path)
         if expected_sha256 is not None:
-            actual = _sha256_file(checkpoint_path)
-            if actual.lower() != expected_sha256.lower():
+            if actual_sha256.lower() != expected_sha256.lower():
                 raise ValueError(
                     f"Checkpoint SHA-256 mismatch for {checkpoint_path}: expected "
-                    f"{expected_sha256}, got {actual}. Refusing to load a checkpoint "
-                    "whose integrity cannot be verified."
+                    f"{expected_sha256}, got {actual_sha256}. Refusing to load a "
+                    "checkpoint whose integrity cannot be verified."
                 )
-            _logger.info("Checkpoint SHA-256 verified: %s", actual)
+            _logger.info("Checkpoint SHA-256 verified: %s", actual_sha256)
 
         _logger.info("Loading checkpoint: %s", checkpoint_path)
         # Safe by default: weights_only=True prevents pickle-based RCE. All shipped
@@ -256,7 +264,9 @@ class InferenceEngine:
             from aion_nexus.substrate_v3 import v3_from_model_state_dict
             model = v3_from_model_state_dict(state_dict)
             _logger.info("Checkpoint loaded successfully (v3 architecture)")
-            return cls(model=model, device=device, architecture_version="v3")
+            engine = cls(model=model, device=device, architecture_version="v3")
+            engine.checkpoint_sha256 = actual_sha256
+            return engine
 
         if version == "v1":
             model = create_aion_nexus(num_classes=num_classes)
@@ -271,6 +281,7 @@ class InferenceEngine:
         _logger.info("Checkpoint loaded successfully (%s architecture)", version)
         engine = cls(model=model, device=device)
         engine.architecture_version = version
+        engine.checkpoint_sha256 = actual_sha256
         return engine
 
     def _confidence_band(self, conf: float) -> str:
@@ -416,7 +427,13 @@ class InferenceEngine:
         return out["features"].cpu().numpy()[0]
 
     def get_health(self) -> dict:
-        """Return a snapshot of engine health for /health endpoint."""
+        """Return a snapshot of engine health for /health endpoint.
+
+        ``checkpoint_sha256`` is the SHA-256 of the checkpoint file this engine was
+        loaded from (``None`` for an in-memory model with no file to pin). It lets
+        a serving layer ATTEST which checkpoint is live and compare it against an
+        expected pin (``AION_CHECKPOINT_SHA256``).
+        """
         return {
             "version": __version__,
             "architecture_version": self.architecture_version,
@@ -424,4 +441,5 @@ class InferenceEngine:
             "model_param_count": self.model.get_num_params(),
             "inference_count": self._inference_count,
             "running_avg_latency_ms": round(self._latency_ms_running_avg, 2),
+            "checkpoint_sha256": self.checkpoint_sha256,
         }

@@ -120,7 +120,10 @@ class Verifier:
                 model_id: str | None = None,
                 key: str | bytes | None = None,
                 seed: str | bytes | None = None,
-                scheme: str = "auto") -> Certificate:
+                scheme: str = "auto",
+                ttl_seconds: int | None = None,
+                key_id: str | None = None,
+                now_iso: str | None = None) -> Certificate:
         """Certify ONE sample's probability vector into a sealed :class:`Certificate`.
 
         ``probs`` is a 1-D probability vector (or a single-row 2-D array).
@@ -137,6 +140,20 @@ class Verifier:
           (kept for backward compatibility; passed straight to ``seal``).
         - ``scheme`` — ``"auto"`` (default precedence: Ed25519 seed > HMAC key >
           NONE), or force ``"ed25519"`` / ``"hmac"`` / ``"none"``.
+
+        Validity window & identity (anti-replay, v2.6.0; delegated to
+        :meth:`Certificate.seal`):
+
+        - ``ttl_seconds`` (optional) — when given, the sealed certificate carries
+          a validity window (``not_before = now``, ``valid_until = now +
+          ttl_seconds``) and a fresh ``jti``. These fields are NOT hashed into
+          ``content_hash`` (so the decision hash stays DETERMINISTIC), but the
+          SIGNATURE covers them via the signing payload, so any tamper with the
+          window invalidates the signature. :func:`verify_certificate` rejects an
+          expired / not-yet-valid certificate.
+        - ``key_id`` (optional) — an opaque id of the signing key, for rotation.
+        - ``now_iso`` (optional) — pin "now" for DETERMINISTIC tests (never read
+          the wall clock in a test).
 
         The verdict's ``assurance`` is fixed to EMPIRICAL: a conformal guarantee
         is statistical and never a proof. See :pyattr:`assurance_caveat`.
@@ -178,10 +195,14 @@ class Verifier:
             assurance=CONFORMAL_ASSURANCE,   # conformal => EMPIRICAL, never proven
         )
         # An explicit seed forces the asymmetric (Ed25519) path; otherwise the seal
-        # resolves by precedence (Ed25519 seed env > HMAC key env > NONE).
+        # resolves by precedence (Ed25519 seed env > HMAC key env > NONE). The
+        # validity-window / identity fields (ttl_seconds, key_id, now_iso) are
+        # additive: passing None leaves the cert timeless (backward-compatible).
         if seed is not None:
-            return cert.seal(seed, scheme="ed25519")
-        return cert.seal(key, scheme=scheme)
+            return cert.seal(seed, scheme="ed25519", ttl_seconds=ttl_seconds,
+                             key_id=key_id, now_iso=now_iso)
+        return cert.seal(key, scheme=scheme, ttl_seconds=ttl_seconds,
+                         key_id=key_id, now_iso=now_iso)
 
 
 # --------------------------------------------------------------------------- #

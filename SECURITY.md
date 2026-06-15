@@ -61,7 +61,43 @@ The detailed threat model is in [`docs/threat_model.md`](./docs/threat_model.md)
 ### Cryptographic posture
 
 - Checkpoint integrity: validate SHA-256 against canonical hash in `checkpoints/README.md` after download.
+- **Checkpoint pinning at serve time (v2.6.0)**: set `AION_CHECKPOINT_SHA256` to the expected hash; the server refuses to start (non-degraded) if the live checkpoint differs. `AION_REQUIRE_CHECKPOINT_PIN=1` refuses to start unless the pin is set. `/health` exposes the live and expected hashes.
 - Network transport: deploy behind TLS-terminating reverse proxy (nginx, traefik). The bundled FastAPI server does NOT terminate TLS — that's the operator's responsibility.
+
+### Certificate signing keys (v2.6.0 — the Substrate Core verification layer)
+
+`/predict_certified` signs each verdict. **The signing seed is the authority to mint
+certificates — treat it like a private key.**
+
+- **Provenance & entropy.** Generate the seed with a CSPRNG:
+  `python -c "from aion_nexus.verify import generate_seed; print(generate_seed())"`
+  (32 random bytes, hex). The **product boundary enforces an entropy floor**: a seed
+  below 32 bytes (e.g. a memorable passphrase or PIN) is **refused with 503** at
+  `/predict_certified` — a guessable seed yields a brute-forceable key. The library
+  primitives keep a backward-compatible permissive default; new minting surfaces must
+  pass `strict=True` or call `assert_strong_seed`.
+- **Asymmetric by default.** Prefer Ed25519 (`VERIFY_ED25519_SEED`): the verifier holds
+  only the **public** key (`VERIFY_ED25519_PUBKEY` / the embedded `pubkey`) and **cannot
+  forge**. HMAC (`VERIFY_HMAC_KEY`) is symmetric — whoever can verify can also forge.
+- **Storage & rotation.** Keep the seed out of source/images; inject via a secret manager
+  at runtime. Stamp a `key_id` (`AION_CERT_KEY_ID`) on every cert so you can rotate and
+  attribute. For high-assurance deployments, sign via a **KMS/HSM**: implement the
+  `aion_nexus.verify.Signer` interface (it signs a message, never exposing the key) — a
+  pluggable backend is the intended path; no key should ever sit in application memory.
+- **Expiry / anti-replay.** Certificates carry a signed validity window
+  (`AION_CERT_TTL_SECONDS`, default 24h); an expired or replayed certificate fails
+  verification. The window is bound into the signature, not the `content_hash`, so
+  decision reproducibility (deterministic `content_hash`) is preserved.
+- **Honest default.** With no key configured, certificates declare `authentication=NONE`
+  (integrity hash only, **NOT tamper-evident**) and the response carries an explicit
+  `warning`. `AION_REQUIRE_SIGNED_CERT=1` refuses to emit unsigned certificates.
+
+### Supply-chain attestation (v2.6.0)
+
+See [`docs/SUPPLY_CHAIN.md`](./docs/SUPPLY_CHAIN.md). `scripts/generate_sbom.py` emits a
+CycloneDX SBOM; `scripts/audit_supply_chain.py --strict` is **fail-closed** (non-zero exit
+on a high CVE or a missing `pip-audit`). Recommended for releases: hash-pinned lockfile
+(`pip-compile --generate-hashes`) and signed release/container artifacts (cosign / SLSA).
 
 ## Hardening checklist for production deployments
 

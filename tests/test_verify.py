@@ -28,6 +28,7 @@ from aion_nexus.verify import (
     verify_certificate,
 )
 from aion_nexus.verify.certificate import (
+    CERT_SCHEMA_VERSION,
     ENV_ED25519_PUBKEY,
     ENV_ED25519_SEED,
     ENV_HMAC_KEY,
@@ -35,8 +36,10 @@ from aion_nexus.verify.certificate import (
     VERDICT_CERTIFIED,
     VERDICT_REVIEW,
     Certificate,
+    require_authenticated,
 )
 from aion_nexus.verify.conformal import softmax
+from aion_nexus.verify.signing import generate_seed
 
 CLASS_NAMES = ["normal", "early", "medium", "advanced"]
 
@@ -577,3 +580,202 @@ def test_chain_ed25519_tamper_detected(monkeypatch, tmp_path):
     assert integrity_ok is False
     assert authenticity == "FORGED"
     assert broken_at == 0
+
+
+# ----------------------------------------------------------------------------- #
+# 12. Validity window (anti-replay) — expiry / not_before / jti / key_id
+#     bound by the SIGNATURE, NOT by content_hash (determinism preserved).
+# ----------------------------------------------------------------------------- #
+#
+# A fixed clock so every temporal assertion is deterministic (workspace rule:
+# never read datetime.now in a test). T0 is "now" at seal time; T_BEFORE precedes
+# not_before, T_AFTER is past valid_until for a short TTL.
+T0 = "2026-06-15T12:00:00.000+00:00"
+T_BEFORE = "2026-06-15T11:59:00.000+00:00"   # 1 min before T0
+T_WITHIN = "2026-06-15T12:00:30.000+00:00"   # 30 s after T0 (TTL=60 -> inside)
+T_AFTER = "2026-06-15T12:02:00.000+00:00"    # 2 min after T0 (TTL=60 -> expired)
+
+
+def _ed_cert(monkeypatch):
+    """A minimal Ed25519-signed cert helper (full-entropy seed, strict-clean)."""
+    _clean_env(monkeypatch)
+    seed = generate_seed()
+    cert = Certificate(
+        predicted_label=0, predicted_name="normal", conformal_set=[0],
+        conformal_set_names=["normal"], verdict=VERDICT_CERTIFIED, alpha=0.1,
+        qhat=0.5)
+    return cert, seed
+
+
+def test_schema_version_is_1_1():
+    assert CERT_SCHEMA_VERSION == "1.1"
+
+
+def test_ttl_sets_window_jti_and_signs_payload(monkeypatch):
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, key_id="kid-1", now_iso=T0)
+    # window + identity fields are populated
+    assert cert.not_before == T0
+    assert cert.valid_until == "2026-06-15T12:01:00.000+00:00"
+    assert cert.jti is not None and len(cert.jti) == 32   # uuid4 hex
+    assert cert.key_id == "kid-1"
+    # the signing payload binds all of them
+    sp = cert.signing_payload()
+    assert sp == f"{cert.content_hash}|{cert.not_before}|{cert.valid_until}|" \
+                 f"{cert.jti}|{cert.key_id}"
+
+
+def test_within_window_is_trusted_against_expected_pubkey(monkeypatch):
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, now_iso=T0)
+    res = verify_certificate(cert, expected_pubkey=cert.pubkey, now_iso=T_WITHIN)
+    assert res["integrity_ok"] is True
+    assert res["authenticity"] == "VERIFIED"
+    assert res["expired"] is False
+    assert res["not_yet_valid"] is False
+    assert res["trusted"] is True
+
+
+def test_expired_cert_is_not_trusted(monkeypatch):
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, now_iso=T0)
+    res = verify_certificate(cert, expected_pubkey=cert.pubkey, now_iso=T_AFTER)
+    # signature still valid, but the cert is outside its window
+    assert res["authenticity"] == "VERIFIED"
+    assert res["expired"] is True
+    assert res["trusted"] is False              # CRITICAL: expiry forces no-trust
+    assert "expired" in res["detail"]
+
+
+def test_not_yet_valid_cert_is_not_trusted(monkeypatch):
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, now_iso=T0)
+    res = verify_certificate(cert, expected_pubkey=cert.pubkey, now_iso=T_BEFORE)
+    assert res["not_yet_valid"] is True
+    assert res["trusted"] is False
+    assert "not yet valid" in res["detail"]
+
+
+def test_tampering_valid_until_breaks_the_signature(monkeypatch):
+    """Pushing valid_until into the future is TAMPER-EVIDENT: it changes the
+    signing payload, so the signature no longer verifies -> FORGED, not trusted."""
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, now_iso=T0)
+    d = cert.as_dict()
+    d["valid_until"] = "2099-01-01T00:00:00.000+00:00"   # attacker extends validity
+    # even checking "now" inside the forged window, the signature fails
+    res = verify_certificate(d, expected_pubkey=cert.pubkey, now_iso=T_WITHIN)
+    assert res["authenticity"] == "FORGED"      # signature covers valid_until
+    assert res["trusted"] is False
+
+
+def test_tampering_jti_or_key_id_breaks_the_signature(monkeypatch):
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, key_id="kid-1", now_iso=T0)
+    for field_name, forged in (("jti", "deadbeef" * 4), ("key_id", "kid-evil")):
+        d = cert.as_dict()
+        d[field_name] = forged
+        res = verify_certificate(d, expected_pubkey=cert.pubkey, now_iso=T_WITHIN)
+        assert res["authenticity"] == "FORGED", field_name
+        assert res["trusted"] is False, field_name
+
+
+def test_content_hash_determinism_preserved_with_ttl(monkeypatch):
+    """The headline invariant: temporal fields are NOT in content_hash, so two
+    certs over the SAME decision share a content_hash even with different TTL
+    windows / jti / key_id. Determinism + reproducibility survive anti-replay."""
+    _clean_env(monkeypatch)
+    seed = generate_seed()
+
+    def _mk():
+        return Certificate(
+            predicted_label=0, predicted_name="normal", conformal_set=[0],
+            conformal_set_names=["normal"], verdict=VERDICT_CERTIFIED,
+            alpha=0.1, qhat=0.5)
+
+    a = _mk().seal(seed, scheme="ed25519", ttl_seconds=60, key_id="k1", now_iso=T0)
+    b = _mk().seal(seed, scheme="ed25519", ttl_seconds=3600, key_id="k2",
+                   now_iso="2026-06-15T13:00:00.000+00:00")
+    # identical decision -> identical content_hash despite different windows/jti
+    assert a.content_hash == b.content_hash
+    # but the signing payloads (and signatures) differ, because the windows differ
+    assert a.signing_payload() != b.signing_payload()
+    assert a.signature != b.signature
+    assert a.jti != b.jti
+    # and a cert with NO ttl over the same decision still matches the hash
+    c = _mk().seal(seed, scheme="ed25519")
+    assert c.content_hash == a.content_hash
+
+
+def test_hmac_ttl_window_also_enforced(monkeypatch):
+    """The validity window works on the HMAC path too (signature covers it)."""
+    _clean_env(monkeypatch)
+    monkeypatch.setenv(ENV_HMAC_KEY, "hmac-key")
+    cert = Certificate(
+        predicted_label=0, predicted_name="normal", conformal_set=[0],
+        conformal_set_names=["normal"], verdict=VERDICT_CERTIFIED, alpha=0.1,
+        qhat=0.5).seal(scheme="hmac", ttl_seconds=60, now_iso=T0)
+    assert cert.authentication == AUTH_HMAC
+    ok = verify_certificate(cert, now_iso=T_WITHIN)
+    assert ok["authenticity"] == "VERIFIED" and ok["trusted"] is True
+    gone = verify_certificate(cert, now_iso=T_AFTER)
+    assert gone["expired"] is True and gone["trusted"] is False
+    # tampering the window breaks the HMAC
+    d = cert.as_dict()
+    d["valid_until"] = "2099-01-01T00:00:00.000+00:00"
+    forged = verify_certificate(d, now_iso=T_WITHIN)
+    assert forged["authenticity"] == "FORGED" and forged["trusted"] is False
+
+
+def test_timeless_cert_has_no_window_keys(monkeypatch):
+    """A cert sealed WITHOUT ttl carries no window and verify omits the flags
+    (back-compat: existing certs behave exactly as before)."""
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519")
+    assert cert.not_before is None and cert.valid_until is None and cert.jti is None
+    res = verify_certificate(cert, expected_pubkey=cert.pubkey)
+    assert "expired" not in res and "not_yet_valid" not in res
+    assert res["trusted"] is True
+
+
+def test_malformed_window_fails_closed(monkeypatch):
+    """An unparseable valid_until is treated as expired (fail-closed), never
+    silently trusted."""
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519", ttl_seconds=60, now_iso=T0)
+    d = cert.as_dict()
+    d["valid_until"] = "not-a-timestamp"
+    res = verify_certificate(d, expected_pubkey=cert.pubkey, now_iso=T_WITHIN)
+    assert res["expired"] is True
+    assert res["trusted"] is False
+
+
+# ----------------------------------------------------------------------------- #
+# 13. require_authenticated — safe-by-default strict gate for serving
+# ----------------------------------------------------------------------------- #
+
+def test_require_authenticated_raises_on_unsigned_certified(monkeypatch):
+    _clean_env(monkeypatch)
+    v = _fit_verifier(monkeypatch, key=None)
+    cert = v.certify(np.array([0.97, 0.01, 0.01, 0.01]))   # CERTIFIED, no key
+    assert cert.verdict == VERDICT_CERTIFIED
+    assert cert.authentication == AUTH_NONE
+    with pytest.raises(ValueError, match="unsigned CERTIFIED"):
+        require_authenticated(cert)
+
+
+def test_require_authenticated_passes_signed_certified(monkeypatch):
+    cert, seed = _ed_cert(monkeypatch)
+    cert.seal(seed, scheme="ed25519")
+    assert require_authenticated(cert) is None         # signed -> ok
+
+
+def test_require_authenticated_ignores_non_certified_verdicts(monkeypatch):
+    """REVIEW / ABSTAIN do not authorise autonomous action, so an unsigned one is
+    not the dangerous case the gate guards against."""
+    for verdict in (VERDICT_REVIEW, VERDICT_ABSTAIN):
+        cert = Certificate(
+            predicted_label=0, predicted_name="normal", conformal_set=[0, 1],
+            conformal_set_names=["normal", "early"], verdict=verdict).seal(scheme="none")
+        assert cert.authentication == AUTH_NONE
+        assert require_authenticated(cert) is None     # not gated

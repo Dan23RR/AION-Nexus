@@ -128,10 +128,48 @@ jobs:
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install -r requirements.txt
-          pip install pip-audit
+          pip install pip-audit pip-licenses cyclonedx-bom
 
-      - name: Run supply-chain audit (CVEs + license allowlist)
-        run: python -m scripts.audit_supply_chain --strict
+      - name: Generate CycloneDX SBOM
+        # Uses cyclonedx-py when present (installed above); falls back to a
+        # pure-stdlib generator otherwise. Always produces sbom.cyclonedx.json.
+        run: python scripts/generate_sbom.py --out sbom.cyclonedx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cyclonedx.json
+          if-no-files-found: error
+
+      - name: Generate hash-pinned lockfile (best effort)
+        # pip-tools produces requirements.lock with --require-hashes-compatible
+        # hashes. Best-effort: if pip-compile is unavailable the step is skipped,
+        # not failed (the manual command is documented in docs/SUPPLY_CHAIN.md).
+        run: |
+          pip install pip-tools || { echo "pip-tools unavailable; skipping lockfile."; exit 0; }
+          pip-compile --generate-hashes --output-file requirements.lock requirements.txt \
+            || { echo "pip-compile failed; skipping lockfile (non-fatal)."; exit 0; }
+
+      - name: Upload lockfile artifact (if produced)
+        if: hashFiles('requirements.lock') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements-lock
+          path: requirements.lock
+
+      - name: Run supply-chain audit (CVEs + license allowlist, FAIL-CLOSED)
+        # --strict makes this fail-closed: a missing pip-audit or any CVE/blocked
+        # license fails the job instead of passing with a silent warning.
+        run: python -m scripts.audit_supply_chain --strict --out supply_chain_report.json
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supply-chain-report
+          path: supply_chain_report.json
+          if-no-files-found: ignore
 
       - name: Run pip-audit (raw report)
         run: pip-audit

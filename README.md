@@ -223,6 +223,15 @@ verify_certificate(cert)         # re-audit integrity (+ authenticity if a key i
 A complete, runnable end-to-end walk-through is in
 [`examples/05_verified_inference.py`](./examples/05_verified_inference.py).
 
+**Wired into the running product (v2.6.0).** The signed certificate is not just a library:
+`POST /predict_certified` returns a signed `Certificate` + public key (appended to a
+hash-chained audit store), and `POST /verify` lets an auditor confirm it **offline with the
+public key alone** — the property no incumbent offers. Set `VERIFY_ED25519_SEED` (generate one
+with `python -c "from aion_nexus.verify import generate_seed; print(generate_seed())"`) to
+sign; a weak seed is refused at the boundary, and each certificate carries a signed validity
+window (anti-replay). See [`examples/06_certified_serving.py`](./examples/06_certified_serving.py)
+and the [security policy](./SECURITY.md#certificate-signing-keys-v260--the-substrate-core-verification-layer).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the

@@ -33,7 +33,7 @@ dependencies = [
     "torch>=2.0.0,<3.0.0",
     "numpy>=1.24.0,<3.0.0",
     "scipy>=1.10.0,<2.0.0",  # required for HP-Butterworth filter in preprocessing; without it the silent fallback degrades FEMTO F1 0.884 -> 0.279
-    "cryptography>=43",      # Ed25519 asymmetric signing for aion_nexus.verify (third-party-checkable certificates)
+    "cryptography>=43,<48",  # Ed25519 asymmetric signing for aion_nexus.verify; <48 is the next un-tested major (we ship/test 47.x)
 ]
 
 [project.optional-dependencies]

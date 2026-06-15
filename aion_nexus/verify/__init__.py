@@ -60,15 +60,21 @@ from .certificate import (
     VERDICT_CERTIFIED,
     VERDICT_REVIEW,
     Certificate,
+    require_authenticated,
     sha256_signal,
     verify_certificate,
 )
 from .cheatbench import run_cheatbench
 from .conformal import ConformalCalibrator, ConformalResult, softmax
 from .signing import (
+    HmacSigner,
+    LocalEd25519Signer,
+    Signer,
+    assert_strong_seed,
     ed25519_pubkey_from_seed,
     ed25519_sign,
     ed25519_verify,
+    generate_seed,
     hmac_sign,
     hmac_verify,
 )
@@ -83,17 +89,24 @@ __all__ = [
     "CertificateStore",
     "ChainResult",
     "verify_certificate",
+    "require_authenticated",
     "compose_certificates",
     "sha256_signal",
     "softmax",
     # cheatbench
     "run_cheatbench",
     # signing primitives
+    "generate_seed",
+    "assert_strong_seed",
     "ed25519_pubkey_from_seed",
     "ed25519_sign",
     "ed25519_verify",
     "hmac_sign",
     "hmac_verify",
+    # pluggable Signer interface (KMS/HSM-ready)
+    "Signer",
+    "LocalEd25519Signer",
+    "HmacSigner",
     # assurance lattice
     "assurance",
     "NONE",

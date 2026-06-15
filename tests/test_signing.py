@@ -18,10 +18,18 @@ AND honest about its trust model:
 """
 from __future__ import annotations
 
+import pytest
+
 from aion_nexus.verify.signing import (
+    MIN_SEED_BYTES,
+    HmacSigner,
+    LocalEd25519Signer,
+    Signer,
+    assert_strong_seed,
     ed25519_pubkey_from_seed,
     ed25519_sign,
     ed25519_verify,
+    generate_seed,
     hmac_sign,
     hmac_verify,
 )
@@ -170,3 +178,110 @@ def test_hmac_symmetry_means_verifier_can_forge():
     # message and it verifies — exactly what Ed25519 prevents.
     forged = hmac_sign("attacker-chosen message", key)
     assert hmac_verify("attacker-chosen message", forged, key) is True
+
+
+# --------------------------------------------------------------------------- #
+# Entropy floor — the brute-forceable-seed red-team probe (v2.6.0)
+# --------------------------------------------------------------------------- #
+
+def test_generate_seed_is_full_entropy_hex_and_clears_floor():
+    """generate_seed() returns 32 random bytes as hex and passes the floor."""
+    seed = generate_seed()
+    assert len(bytes.fromhex(seed)) == MIN_SEED_BYTES   # 32 bytes
+    assert generate_seed() != generate_seed()           # fresh randomness each call
+    # A generated seed signs/verifies cleanly even under strict mode.
+    pub = ed25519_pubkey_from_seed(seed, strict=True)
+    sig = ed25519_sign(MESSAGE, seed, strict=True)
+    assert ed25519_verify(MESSAGE, sig, pub) is True
+
+
+def test_strict_rejects_weak_seed_closing_the_probe():
+    """strict=True REFUSES a brute-forceable seed (the '1234' red-team probe).
+
+    Without this gate, '1234' folds to a 32-byte key that a red team recovered
+    in <10k tries. strict=True raises before any key is minted.
+    """
+    with pytest.raises(ValueError, match="entropy floor"):
+        ed25519_sign(MESSAGE, "1234", strict=True)
+    with pytest.raises(ValueError, match="entropy floor"):
+        ed25519_pubkey_from_seed("1234", strict=True)
+    # assert_strong_seed is the standalone gate behind strict=True.
+    with pytest.raises(ValueError, match="entropy floor"):
+        assert_strong_seed("1234")
+    # A full-entropy seed passes the gate silently.
+    assert assert_strong_seed(generate_seed()) is None
+
+
+def test_default_is_backward_compatible_permissive():
+    """DEFAULT (strict=False) keeps the legacy fold and does NOT raise on a short
+    seed — this is what preserves existing callers (seal/store/cheatbench)."""
+    # No exception; a usable (if weak) key is derived, exactly as before v2.6.0.
+    pub = ed25519_pubkey_from_seed("1234")
+    sig = ed25519_sign(MESSAGE, "1234")
+    assert ed25519_verify(MESSAGE, sig, pub) is True
+
+
+def test_kdf_accepts_memorable_seed_and_is_deterministic():
+    """kdf=True stretches a short seed with scrypt: usable, deterministic, and a
+    DIFFERENT key from the plain fold (so kdf must be used consistently)."""
+    weak = "pin-1234"
+    pub_kdf = ed25519_pubkey_from_seed(weak, kdf=True)
+    sig_kdf = ed25519_sign(MESSAGE, weak, kdf=True)
+    # round-trips under the kdf-derived pubkey
+    assert ed25519_verify(MESSAGE, sig_kdf, pub_kdf) is True
+    # deterministic: same seed + kdf -> same key/signature
+    assert ed25519_pubkey_from_seed(weak, kdf=True) == pub_kdf
+    assert ed25519_sign(MESSAGE, weak, kdf=True) == sig_kdf
+    # kdf path derives a DIFFERENT key than the plain fold -> NOT interchangeable
+    assert ed25519_pubkey_from_seed(weak) != pub_kdf
+    assert ed25519_verify(MESSAGE, sig_kdf, ed25519_pubkey_from_seed(weak)) is False
+
+
+def test_kdf_overrides_strict_to_use_a_short_seed():
+    """kdf=True is the deliberate escape: it accepts a short seed even with
+    strict=True (stretching is the sanctioned way to use a memorable secret)."""
+    pub = ed25519_pubkey_from_seed("short", kdf=True, strict=True)
+    sig = ed25519_sign(MESSAGE, "short", kdf=True, strict=True)
+    assert ed25519_verify(MESSAGE, sig, pub) is True
+
+
+# --------------------------------------------------------------------------- #
+# Signer interface — pluggable signing (the enterprise / KMS bar)
+# --------------------------------------------------------------------------- #
+
+def test_local_ed25519_signer_round_trips_and_exposes_pubkey():
+    """LocalEd25519Signer signs a message and advertises the verifying pubkey."""
+    seed = generate_seed()
+    signer = LocalEd25519Signer(seed)
+    assert isinstance(signer, Signer)                 # satisfies the protocol
+    assert signer.scheme == "Ed25519"
+    sig = signer.sign(MESSAGE)
+    # public_material is the key a third party verifies against
+    assert ed25519_verify(MESSAGE, sig, signer.public_material) is True
+    assert signer.public_material == ed25519_pubkey_from_seed(seed, strict=True)
+
+
+def test_local_ed25519_signer_defaults_strict_and_fails_fast_on_weak_seed():
+    """LocalEd25519Signer is NEW minting code -> strict by default; a weak seed
+    fails at construction, not silently at sign() time."""
+    with pytest.raises(ValueError, match="entropy floor"):
+        LocalEd25519Signer("1234")
+    # explicit strict=False or kdf=True are the documented escapes
+    assert LocalEd25519Signer("1234", strict=False).sign(MESSAGE)
+    assert LocalEd25519Signer("1234", kdf=True).sign(MESSAGE)
+
+
+def test_hmac_signer_round_trips_and_hides_the_secret():
+    """HmacSigner signs symmetrically and NEVER exposes the secret as public
+    material (embedding it would hand every reader the power to mint)."""
+    signer = HmacSigner(b"shared-secret")
+    assert isinstance(signer, Signer)
+    assert signer.scheme == "HMAC-SHA256"
+    assert signer.public_material is None             # secret is NOT public
+    sig = signer.sign(MESSAGE)
+    assert hmac_verify(MESSAGE, sig, b"shared-secret") is True
+
+
+def test_signer_protocol_is_runtime_checkable_and_rejects_non_signers():
+    """A plain object without sign/scheme is NOT a Signer (guards duck-typing)."""
+    assert not isinstance(object(), Signer)

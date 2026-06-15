@@ -307,6 +307,112 @@ class TestBodySizeLimit:
         assert client.post("/predict", json={"signal": sig}).status_code == 200
 
 
+def _femto_csv_bytes(n_rows: int = 2700, seed: int = 0) -> bytes:
+    """A valid 6-column FEMTO CSV with non-stuck data (channels at cols 4, 5)."""
+    rng = np.random.default_rng(seed)
+    rows = [f"0,0,0,0,{rng.standard_normal():.6f},{rng.standard_normal():.6f}"
+            for _ in range(n_rows)]
+    return ("\n".join(rows)).encode()
+
+
+class TestBatchByteBudget:
+    """/predict_batch low-finding fix: an aggregate BYTE budget (not just a file
+    count) and an explicit 2D guard for a 1-column CSV."""
+
+    def test_batch_byte_budget_returns_413(self, client, monkeypatch):
+        # Two valid CSVs whose aggregate size exceeds a tiny budget -> 413.
+        monkeypatch.setenv("AION_MAX_BATCH_BYTES", "1024")
+        files = [
+            ("files", ("a.csv", _femto_csv_bytes(seed=1), "text/csv")),
+            ("files", ("b.csv", _femto_csv_bytes(seed=2), "text/csv")),
+        ]
+        r = client.post("/predict_batch", files=files)
+        assert r.status_code == 413, r.text
+        assert "aggregate" in r.json()["detail"]
+
+    def test_batch_one_column_csv_returns_clean_400(self, client):
+        """A 1-column CSV parses to a 1-D array; the explicit ndim==2 guard must
+        return a clean 400 (not an accidental IndexError-as-500)."""
+        one_col = ("\n".join(str(float(i)) for i in range(2700))).encode()
+        files = [("files", ("one_col.csv", one_col, "text/csv"))]
+        r = client.post("/predict_batch", files=files)
+        assert r.status_code == 400, r.text
+        assert r.status_code != 500
+        assert "2D" in r.json()["detail"] or "parse" in r.json()["detail"].lower()
+
+    def test_batch_within_budget_passes(self, client, monkeypatch):
+        monkeypatch.setenv("AION_MAX_BATCH_BYTES", str(50 * 1024 * 1024))
+        files = [("files", ("a.csv", _femto_csv_bytes(seed=3), "text/csv"))]
+        r = client.post("/predict_batch", files=files)
+        assert r.status_code == 200, r.text
+        assert r.json()["n_inputs"] == 1
+
+
+class TestCheckpointPin:
+    """Checkpoint hash pinning (v2.6.0): the server attests WHICH weights serve.
+
+    These drive the bootstrap helper directly (engine load is a startup concern,
+    not a request), restoring app state afterwards so other tests are unaffected.
+    """
+
+    CKPT = "checkpoints/aion_nexus_v1.pth"
+
+    @pytest.fixture
+    def restore_state(self, app):
+        saved = (
+            getattr(app.state, "engine", None),
+            getattr(app.state, "startup_error", None),
+            getattr(app.state, "expected_checkpoint_sha256", None),
+        )
+        yield
+        (app.state.engine, app.state.startup_error,
+         app.state.expected_checkpoint_sha256) = saved
+
+    def _ckpt_exists(self):
+        from pathlib import Path
+        return Path(self.CKPT).exists()
+
+    def test_correct_pin_loads(self, app, client, monkeypatch, restore_state):
+        if not self._ckpt_exists():
+            pytest.skip("v1 checkpoint not present in this environment")
+        from pathlib import Path
+
+        from aion_nexus.inference import _sha256_file
+        from server.main import _load_engine
+
+        good = _sha256_file(Path(self.CKPT))
+        monkeypatch.setenv("AION_CHECKPOINT", self.CKPT)
+        monkeypatch.setenv("AION_CHECKPOINT_SHA256", good)
+        _load_engine(app)
+        assert app.state.engine is not None, app.state.startup_error
+        body = client.get("/health").json()
+        assert body["checkpoint_sha256"] == good
+        assert body["expected_checkpoint_sha256"] == good
+
+    def test_wrong_pin_refuses_to_load(self, app, client, monkeypatch, restore_state):
+        if not self._ckpt_exists():
+            pytest.skip("v1 checkpoint not present in this environment")
+        from server.main import _load_engine
+
+        monkeypatch.setenv("AION_CHECKPOINT", self.CKPT)
+        monkeypatch.setenv("AION_CHECKPOINT_SHA256", "00" * 32)  # wrong hash
+        _load_engine(app)
+        # Hash mismatch -> engine NOT loaded (degraded), never silently served.
+        assert app.state.engine is None
+        assert "SHA-256 mismatch" in (app.state.startup_error or "")
+        assert client.get("/health").json()["status"] == "down"
+
+    def test_strict_pin_without_hash_refuses(self, app, monkeypatch, restore_state):
+        monkeypatch.setenv("AION_CHECKPOINT", self.CKPT)
+        monkeypatch.delenv("AION_CHECKPOINT_SHA256", raising=False)
+        monkeypatch.setenv("AION_REQUIRE_CHECKPOINT_PIN", "1")
+        from server.main import _load_engine
+
+        _load_engine(app)
+        assert app.state.engine is None
+        assert "strict checkpoint pinning" in (app.state.startup_error or "")
+
+
 # ---- Observability -----------------------------------------------------------
 
 class TestMetricsEndpoint:

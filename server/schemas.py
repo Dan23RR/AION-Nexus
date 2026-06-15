@@ -102,11 +102,76 @@ class HealthResponse(BaseModel):
     model_param_count: int
     inference_count: int
     running_avg_latency_ms: float
+    # Checkpoint hash pin (v2.6.0): the SHA-256 of the live checkpoint file
+    # (``None`` if the engine was built from an in-memory model) and the expected
+    # pin from ``AION_CHECKPOINT_SHA256`` (``None`` if unset). When both are
+    # present they MUST match (the server refuses to start otherwise); exposing
+    # them lets an operator / auditor confirm WHICH weights are serving.
+    checkpoint_sha256: str | None = None
+    expected_checkpoint_sha256: str | None = None
 
 
 class ErrorResponse(BaseModel):
     error: str
     detail: str | None = None
+
+
+# ---- Certified serving (v2.6.0): /predict_certified and /verify --------------
+
+class PredictCertifiedResponse(BaseModel):
+    """``/predict_certified`` response: the prediction PLUS a sealed certificate.
+
+    The certificate is returned as a plain dict (``Certificate.as_dict()``) rather
+    than a fixed schema so the response stays byte-compatible with the dataclass
+    as it evolves (additive fields like ``not_before`` / ``jti`` do not break the
+    contract). ``pubkey`` is the Ed25519 PUBLIC key to verify against (``None`` for
+    HMAC / NONE). ``verdict`` mirrors ``certificate["verdict"]`` for convenience.
+
+    HONESTY: ``warning`` is set (non-null) ONLY when the certificate is UNSIGNED
+    (``authentication = NONE``) because no signing key is configured — it states
+    plainly that the certificate is integrity-only and NOT tamper-evident. A
+    signed certificate carries ``warning = None``. The server NEVER silently
+    pretends an unsigned cert is authenticated.
+    """
+
+    prediction: PredictResponse
+    certificate: dict
+    pubkey: str | None = None
+    verdict: str
+    warning: str | None = None
+
+
+class VerifyRequest(BaseModel):
+    """``/verify`` body: a certificate dict to audit, plus the EXPECTED issuer key.
+
+    ``expected_pubkey`` is the out-of-band Ed25519 public key that identifies the
+    trusted issuer. Supplying it is what separates genuine issuer authentication
+    (``authenticity = VERIFIED``, ``trusted = True``) from mere self-consistency
+    (``SELF-SIGNED``, ``trusted = False``) — see :func:`verify_certificate`.
+    ``now_iso`` optionally pins "now" for deterministic validity-window checks
+    (default: the server's real UTC clock).
+    """
+
+    certificate: dict
+    expected_pubkey: str | None = None
+    now_iso: str | None = None
+
+
+class VerifyResponse(BaseModel):
+    """``/verify`` result: the full :func:`verify_certificate` verdict.
+
+    ``trusted`` is the SINGLE safe flag to gate on (True ONLY when integrity holds
+    AND the issuer is VERIFIED against the expected key AND the cert is in its
+    validity window). ``expired`` / ``not_yet_valid`` are present only when the
+    certificate carried a validity window.
+    """
+
+    integrity_ok: bool
+    authenticity: str
+    trusted: bool
+    detail: str
+    expired: bool | None = None
+    not_yet_valid: bool | None = None
 
 
 class LongSignalRequest(BaseModel):
