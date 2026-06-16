@@ -42,6 +42,13 @@ from aion_nexus.few_shot import FewShotAdapter
 from aion_nexus.inference import InferenceEngine, PredictionResult
 from aion_nexus.model import AIONNexus, create_aion_nexus
 from aion_nexus.model_v6 import V6_PARAM_COUNT_4CLASS, AIONNexusV6, create_aion_nexus_v6
+from aion_nexus.physics import (
+    BearingGeometry,
+    PhysicsVerdict,
+    fault_order_energy,
+    order_spectrum,
+    physics_consistency,
+)
 from aion_nexus.preprocessing import preprocess_signal, validate_signal
 from aion_nexus.recursive_reasoner import TinyRecursiveReasoner
 from aion_nexus.substrate_v3 import (
@@ -73,6 +80,9 @@ __all__ = [
     "preprocess_signal", "validate_signal",
     # Degradation-stage (honest coarse positional proxy, NOT calibrated RUL)
     "DegradationEstimate", "estimate_degradation",
+    # Physics front-end + model-agnostic second-opinion verifier (RPM-invariant orders)
+    "BearingGeometry", "PhysicsVerdict", "physics_consistency",
+    "fault_order_energy", "order_spectrum",
     # Substrate Core: model-agnostic verification & certification layer
     "Verifier", "Certificate", "ConformalCalibrator", "verify_certificate",
     "compliance_evidence", "evidence_card",

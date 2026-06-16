@@ -257,6 +257,17 @@ records which method produced the verdict (`conformal_method` / `coverage_guaran
 **tamper-evidently** into the hash and surfaced on the factory bus — so the verdict carries
 the guarantee it holds, and you can't forge a stronger claim onto it.
 
+**Physics front-end + model-agnostic second opinion (v2.11.0).** Bearing models collapse
+cross-machine partly because they read raw time-domain windows and ignore the physics already
+available (shaft rpm + bearing geometry). `aion_nexus.physics` fixes both: a fault's characteristic
+frequencies are computed in **orders** (geometry-only, so an order-domain envelope spectrum is
+**rpm-invariant by construction**), and `physics_consistency()` is a model-agnostic check — *is the
+energy actually at the claimed defect order on THIS machine?* — that composes with the signed
+certificate, so a model that is confidently wrong cross-machine is caught (`CERTIFIED` + physics
+`CONTRADICT` → `REVIEW`). Honest scope: this closes the cross-*speed* gap deterministically and
+catches disagreement; it is not a cross-*machine* accuracy cure (diversity, not capacity, is the
+wall). See [`examples/09_physics_verifier.py`](./examples/09_physics_verifier.py).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the

@@ -4,6 +4,44 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] — 2026-06-16 (Physics front-end + model-agnostic second-opinion verifier)
+
+A field-wide research sweep (UniFault, DGFDBenchmark, Hendriks et al., arXiv:2509.22267) converged
+on one diagnosis: bearing models collapse cross-machine (in-distribution 0.88 → LOBO 0.35) largely
+because they read RAW time-domain windows and IGNORE the physics already available — the shaft rpm
+and the bearing geometry — and AION's own `forward()` accepts `rpm`/`geometry` and discards them.
+This release closes that gap with classical DSP and turns the physics into a verifier asset. Full
+analysis + ranked roadmap: `AION_NEXUS_RD/20_ARCHITECTURE_LEAP.md`. No breaking changes.
+
+### Added — `aion_nexus.physics`
+- **RPM-invariant representation.** `BearingGeometry.fault_orders()` gives the BPFO/BPFI/BSF/FTF
+  characteristic frequencies in ORDERS (geometry-only, rpm-independent — validated against the
+  published SKF 6205 values). `order_spectrum()` (with computed order tracking / angular resampling
+  for varying speed) places a fault peak at the SAME order at every speed — invariance *by
+  construction*, the most leakage-robust input the field has measured. `envelope_spectrum()`,
+  `order_resample()`, `fault_order_energy()` (a speed-independent harmonic-comb SNR per fault family).
+- **Model-agnostic second opinion.** `physics_consistency()` asks what no learned model answers about
+  itself — *is the energy actually at the claimed defect order on THIS machine?* — using only rpm +
+  geometry, so it checks ANY model's claim. Returns CONFIRM / WEAK / CONTRADICT / INDETERMINATE, and
+  `PhysicsVerdict.as_component()` composes it with a conformal certificate via `compose_certificates`:
+  a CERTIFIED model + a CONTRADICT physics check drops to **REVIEW** — the cross-machine failure mode
+  caught and routed to a human, not silently certified.
+
+### Verification
+- 11 tests: kinematics vs published SKF 6205, the rpm-invariance proof (same fault, two speeds → same
+  order / different Hz), order tracking under a speed sweep, CONFIRM/CONTRADICT/WEAK/INDETERMINATE,
+  white-noise gives no false positive (local-prominence + harmonic-comb SNR), and composition with the
+  certificate. Suite **380 → 391**; ruff clean. Example: `examples/09_physics_verifier.py`.
+
+### Honesty (workspace 6.31)
+Order tracking removes the cross-SPEED (same-machine) shift deterministically; it does NOT by itself
+cross the cross-MACHINE wall (sensor placement, transmission path, artificial-vs-real damage remain) —
+the literature puts physics-only LOBO around ~0.5-0.6, not a sellable >0.85, because DIVERSITY (number
+of distinct bearings), not capacity, is the binding constraint. The physics consistency tier is
+EMPIRICAL (a thresholded SNR heuristic), never a proof. The value is the honest second opinion and the
+abstention, not an accuracy cure. Note: envelope/order analysis needs more shaft revolutions than the
+0.1 s window, so the physics front-end implies longer captures (or aggregation) — an input-contract change.
+
 ## [2.10.0] — 2026-06-16 (EU AI Act Annex IV technical-documentation evidence map)
 
 The strategic wedge: the EU AI Act's harmonised standards (CEN-CENELEC JTC 21) are not yet in
