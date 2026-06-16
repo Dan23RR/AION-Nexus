@@ -69,6 +69,32 @@ aci.empirical_miscoverage  # converges to alpha despite drift
 
 Runnable walkthrough: [`examples/08_conditional_conformal.py`](../examples/08_conditional_conformal.py).
 
+## Deploy-time covariate shift — estimate the weights (v2.12.0)
+
+`WeightedConformalCalibrator` recovers coverage under covariate shift **if** you
+supply the likelihood-ratio weights `w(x)=dP_target/dP_cal`. At install time you do
+not have them — only unlabeled windows from the new machine. `aion_nexus.verify`
+estimates them:
+
+```python
+from aion_nexus.verify import deploy_weighted_calibrator
+
+# cal_features / target_features: model embeddings, signal features, or the
+# RPM-invariant physics order-SNR features (aion_nexus.physics.fault_order_energy).
+cal, weight_fn = deploy_weighted_calibrator(
+    probs_cal, labels_cal, cal_features, target_features, alpha=0.1)
+sets = cal.predict_set(probs_test, weight_test=weight_fn(test_features))
+```
+
+`estimate_covariate_shift_weights()` does it by probabilistic classification
+(label calibration 0 / target 1, fit a logistic regression, `w ∝ odds`; Bickel et
+al. 2007). This converts the cross-machine wall **into the product**: a certified,
+honestly-widened interval instead of a hidden under-coverage. **Honesty (6.31):**
+the estimate is an approximation — recovered coverage is only as good as the
+features capturing the shift and the classifier fitting it; with no shift it
+reduces to standard split conformal. It is proven by the deploy test in
+`tests/test_conformal_advanced.py` (estimated, not oracle, weights restore coverage).
+
 ## How it composes with the rest
 
 - **The certificate records the guarantee (v2.9.0).** `Verifier.certify(...,

@@ -4,6 +4,36 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] — 2026-06-16 (Covariate-shift conformal at deploy: estimate the weights from unlabeled target data)
+
+The architecture-leap roadmap's #3: convert the cross-machine generalization wall INTO the product —
+a certified, honestly-WIDENED prediction interval under shift instead of a hidden under-coverage. The
+`WeightedConformalCalibrator` (v2.8.0) recovers coverage under covariate shift, but it needs the
+likelihood-ratio weights `w(x)=dP_target/dP_cal` SUPPLIED — which at install time you do not have. This
+release estimates them from UNLABELED target-machine data, the realistic deploy case. No breaking changes.
+
+### Added — `aion_nexus.verify`
+- **`estimate_covariate_shift_weights(cal_features, target_features)`**: estimates `w(x)` by probabilistic
+  classification (Bickel et al. 2007 / Sugiyama density-ratio-by-classification — label calibration 0 /
+  target 1, fit a logistic regression, read `w ∝ odds`), pure-numpy (no sklearn/torch). Returns the
+  calibration weights + a `weight_fn` for new test points. Features can be model embeddings, signal
+  features, or the RPM-invariant physics order-SNR features from v2.11.0 (`fault_order_energy`).
+- **`deploy_weighted_calibrator(probs_cal, labels_cal, cal_features, target_features)`**: one call —
+  estimate the weights and return a fitted `WeightedConformalCalibrator` + the `weight_fn`, so a deployed
+  model gets coverage-valid sets on a new machine from only unlabeled target windows.
+
+### Verification
+- 2 new tests: under a feature-driven covariate shift, vanilla split-CP under-covers while the
+  **ESTIMATED-weight** CP (weights inferred from unlabeled features, not oracle-supplied) recovers nominal
+  coverage; and with NO shift the estimated weights stay ~uniform (it does not invent a shift). Suite
+  **391 → 393**; ruff clean.
+
+### Honesty (workspace 6.31)
+The estimate is an APPROXIMATION: recovered coverage is only as good as (a) the features capturing the
+shift and (b) the classifier fitting it; with no shift it reduces to standard split conformal. It does
+not manufacture a guarantee the data cannot support — the honest, certified, widened interval is the
+product, not a claim that the wall is gone.
+
 ## [2.11.0] — 2026-06-16 (Physics front-end + model-agnostic second-opinion verifier)
 
 A field-wide research sweep (UniFault, DGFDBenchmark, Hendriks et al., arXiv:2509.22267) converged

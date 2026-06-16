@@ -261,3 +261,51 @@ def test_alpha_out_of_range_rejected():
     for bad in (0.0, 1.0, -0.1, 1.5):
         with pytest.raises(ValueError):
             ClassConditionalConformalCalibrator(alpha=bad).__post_init__()
+
+
+# --------------------------------------------------------------------------- #
+# 5. Deploy-time covariate-shift weights — ESTIMATED (not oracle) from features
+# --------------------------------------------------------------------------- #
+
+def _gen_feature_shift(n, rng, z_mean, k=4):
+    """A 1-D covariate z (the shift axis) that also DRIVES difficulty: higher z =>
+    lower true-class confidence. Calibration is low-z (easy), target is high-z
+    (hard) — so vanilla CP under-covers the target and the weights must be inferred
+    from z alone (no labels)."""
+    z = rng.normal(z_mean, 1.0, size=n)
+    labels = rng.integers(0, k, size=n)
+    conf = 1.0 / (1.0 + np.exp(-(2.2 - 1.6 * z)))     # high z -> low confidence
+    probs = np.array([_prob_vector(rng, labels[i], conf[i], k) for i in range(n)])
+    return probs, labels, z.reshape(-1, 1)
+
+
+def test_estimated_weights_recover_coverage_under_shift():
+    from aion_nexus.verify import deploy_weighted_calibrator
+
+    rng = np.random.default_rng(17)
+    p_cal, y_cal, f_cal = _gen_feature_shift(3000, rng, z_mean=0.0)
+    p_te, y_te, f_te = _gen_feature_shift(4000, rng, z_mean=1.4)   # covariate shift in z
+
+    # Vanilla split conformal (ignores the shift) under-covers the target.
+    base = WeightedConformalCalibrator(alpha=ALPHA).fit(p_cal, y_cal)
+    cov_vanilla = _coverage(base.predict_set(p_te, weight_test=1.0), y_te)
+
+    # Weights ESTIMATED from unlabeled features (the deploy reality) recover coverage.
+    cal, weight_fn = deploy_weighted_calibrator(p_cal, y_cal, f_cal, f_te, alpha=ALPHA)
+    cov_est = _coverage(cal.predict_set(p_te, weight_test=weight_fn(f_te)), y_te)
+
+    assert cov_vanilla < TARGET - 0.03, f"expected vanilla to under-cover: {cov_vanilla:.3f}"
+    assert cov_est >= TARGET - TOL, f"estimated-weight CP failed to recover: {cov_est:.3f}"
+
+
+def test_estimated_weights_are_near_uniform_without_shift():
+    from aion_nexus.verify import estimate_covariate_shift_weights
+
+    # Same distribution for cal and "target" -> no shift -> weights ~ uniform, so
+    # the estimator must not invent a shift and break the no-shift case.
+    rng = np.random.default_rng(23)
+    _, _, f_cal = _gen_feature_shift(2500, rng, z_mean=0.0)
+    _, _, f_tgt = _gen_feature_shift(2500, rng, z_mean=0.0)
+    w_cal, _ = estimate_covariate_shift_weights(f_cal, f_tgt)
+    # Coefficient of variation small => essentially uniform weights.
+    assert w_cal.std() / w_cal.mean() < 0.35

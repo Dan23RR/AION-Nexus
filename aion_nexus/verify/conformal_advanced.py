@@ -473,3 +473,105 @@ class AdaptiveConformalGate:
             self.alpha_t = float(np.clip(self.alpha_t + self.gamma * (self.alpha - err),
                                          0.0, 1.0))
         return pred_set
+
+
+# --------------------------------------------------------------------------- #
+# Deploy-time covariate-shift weight estimation (makes weighted CP usable
+# without oracle weights — estimate dP_target/dP_cal from UNLABELED target data)
+# --------------------------------------------------------------------------- #
+
+def _logreg_fit(x: np.ndarray, y: np.ndarray, *, l2: float, epochs: int,
+                lr: float) -> tuple[np.ndarray, float]:
+    """Tiny L2-regularised logistic regression (full-batch GD, pure numpy).
+
+    Used only to estimate a density ratio by classification — no sklearn / torch
+    dependency, keeping this module pure-numpy like the rest of the verify layer.
+    """
+    n, d = x.shape
+    w = np.zeros(d, dtype=np.float64)
+    b = 0.0
+    for _ in range(epochs):
+        z = np.clip(x @ w + b, -30.0, 30.0)
+        p = 1.0 / (1.0 + np.exp(-z))
+        err = p - y
+        gw = x.T @ err / n + l2 * w / n
+        gb = float(err.mean())
+        w -= lr * gw
+        b -= lr * gb
+    return w, b
+
+
+def estimate_covariate_shift_weights(
+        cal_features: np.ndarray, target_features: np.ndarray, *,
+        l2: float = 1.0, epochs: int = 400, lr: float = 0.5,
+        weight_clip: tuple[float, float] = (1e-2, 1e2)):
+    """Estimate the covariate-shift likelihood ratio ``w(x) = dP_target/dP_cal``
+    from UNLABELED feature samples, by probabilistic classification.
+
+    The deploy reality the base :class:`WeightedConformalCalibrator` leaves open: it
+    needs the weights, but at install time you do NOT know them — you only have a
+    pile of unlabeled windows from the new (target) machine. This estimates them the
+    standard way (Bickel et al. 2007 / Sugiyama density-ratio-by-classification):
+    label calibration features 0 and target features 1, fit a classifier, and read
+    the density ratio off its odds, ``w(x) ∝ p(target|x) / (1 - p(target|x))`` (the
+    constant class-prior factor cancels in the weighted-CP normalisation). Weights
+    are clipped to ``weight_clip`` so a few extreme points can't destabilise the
+    weighted quantile.
+
+    ``cal_features`` / ``target_features`` are ``[n, d]`` arrays — use the model's
+    penultimate embeddings, hand-crafted signal features, or the RPM-invariant
+    physics order-SNR features (:func:`aion_nexus.physics.fault_order_energy`),
+    which are exactly the condition-aware features a shift shows up in.
+
+    Returns ``(weight_calib, weight_fn)``: ``weight_calib`` are the weights at the
+    calibration points (feed to ``WeightedConformalCalibrator.fit(weight_calib=...)``),
+    and ``weight_fn(features)`` returns the weights for new test points (feed to
+    ``predict_set(weight_test=...)``).
+
+    HONESTY (6.31): this is an APPROXIMATION. The recovered coverage is only as good
+    as (a) the features actually capturing the shift and (b) the estimator fitting
+    it; with no shift the weights collapse to ~uniform and it reduces to standard
+    split conformal. It does NOT manufacture a guarantee the data cannot support.
+    """
+    cal_x = np.atleast_2d(np.asarray(cal_features, dtype=np.float64))
+    tgt_x = np.atleast_2d(np.asarray(target_features, dtype=np.float64))
+    if cal_x.ndim != 2 or tgt_x.ndim != 2 or cal_x.shape[1] != tgt_x.shape[1]:
+        raise ValueError("cal_features and target_features must be [n, d] with equal d")
+    x = np.vstack([cal_x, tgt_x])
+    y = np.concatenate([np.zeros(len(cal_x)), np.ones(len(tgt_x))])
+    mu = x.mean(axis=0)
+    sd = x.std(axis=0) + 1e-8
+    w, b = _logreg_fit((x - mu) / sd, y, l2=l2, epochs=epochs, lr=lr)
+    lo, hi = weight_clip
+
+    def weight_fn(features: np.ndarray) -> np.ndarray:
+        xf = np.atleast_2d(np.asarray(features, dtype=np.float64))
+        z = np.clip(((xf - mu) / sd) @ w + b, -30.0, 30.0)
+        return np.clip(np.exp(z), lo, hi)            # odds = p/(1-p) = exp(logit)
+
+    return weight_fn(cal_x), weight_fn
+
+
+def deploy_weighted_calibrator(probs_cal: np.ndarray, labels_cal: np.ndarray,
+                               cal_features: np.ndarray, target_features: np.ndarray,
+                               *, alpha: float = 0.10, **weight_kwargs):
+    """One call: estimate covariate-shift weights from unlabeled target features,
+    then return a :class:`WeightedConformalCalibrator` fitted with them + the
+    ``weight_fn`` to weight test points.
+
+    Usage at deploy::
+
+        cal, weight_fn = deploy_weighted_calibrator(
+            probs_cal, labels_cal, cal_embeddings, target_embeddings, alpha=0.1)
+        sets = cal.predict_set(probs_test, weight_test=weight_fn(test_embeddings))
+
+    This is the rare item that converts the cross-machine wall INTO the product: a
+    certified, honestly-WIDENED prediction set under shift instead of a hidden
+    under-coverage — with the same honesty caveat as
+    :func:`estimate_covariate_shift_weights` (only as good as the features + fit).
+    """
+    weight_cal, weight_fn = estimate_covariate_shift_weights(
+        cal_features, target_features, **weight_kwargs)
+    cal = WeightedConformalCalibrator(alpha=alpha).fit(
+        probs_cal, labels_cal, weight_calib=weight_cal)
+    return cal, weight_fn

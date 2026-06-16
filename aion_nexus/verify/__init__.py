@@ -71,6 +71,8 @@ from .conformal_advanced import (
     ClassConditionalConformalCalibrator,
     MondrianConformalCalibrator,
     WeightedConformalCalibrator,
+    deploy_weighted_calibrator,
+    estimate_covariate_shift_weights,
     finite_sample_level,
 )
 from .signing import (
@@ -99,6 +101,8 @@ __all__ = [
     "WeightedConformalCalibrator",
     "AdaptiveConformalGate",
     "finite_sample_level",
+    "estimate_covariate_shift_weights",
+    "deploy_weighted_calibrator",
     "CertificateStore",
     "ChainResult",
     "verify_certificate",
