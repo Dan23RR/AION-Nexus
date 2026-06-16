@@ -298,7 +298,11 @@ credibility the verifier exists to provide.
   does **NOT** make the system "EU AI Act compliant" or "certified compliant" — compliance
   is an organizational/process result, not something a single certificate can assert. The
   `/predict_degradation` endpoint returns the degradation-stage estimate with its conformal
-  set under the same caveats.
+  set under the same caveats. **(v2.10.0)** `aion_nexus.annex_iv_dossier()` / the
+  `python -m scripts.generate_annex_iv` CLI emit an **Annex IV evidence map** — which artefacts
+  AION supplies toward each of the nine Annex IV points and what the provider must author. It is
+  a documentation skeleton, explicitly **not** the technical documentation, **not** a declaration
+  of conformity, and **not** a statement that the system meets Annex IV.
 
 > All headline performance caveats above still apply: the 4 classes are **positional
 > life-stage labels** (not diagnosed fault types); `0.884` is an **in-distribution

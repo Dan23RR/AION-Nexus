@@ -4,6 +4,37 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] — 2026-06-16 (EU AI Act Annex IV technical-documentation evidence map)
+
+The strategic wedge: the EU AI Act's harmonised standards (CEN-CENELEC JTC 21) are not yet in
+the Official Journal, so a provider who can assemble Annex IV technical documentation early
+occupies open ground. This release adds an **honest Annex IV evidence map** — for each of the
+nine Annex IV points (Article 11), which concrete AION artefacts can supply it and what the
+provider must author — built with the same §6.31 discipline as the rest of `aion_nexus.compliance`.
+
+### Added — `aion_nexus.compliance`
+- **`annex_iv_dossier(model_metadata=None, *, certificate=None)`**: maps all nine Annex IV
+  points to `aion_provides` / `deployer_must_supply` / `status` / a NON-EMPTY `limitation`.
+  Caller metadata (intended purpose, architecture, datasets, standards, ...) fills sections;
+  anything absent is reported as provider-owned rather than invented. A `readiness` block counts
+  AION-supplied sections and **explicitly disclaims** being a conformity measure.
+- **`annex_iv_card(...)`**: the same as a Markdown dossier skeleton.
+- **`scripts/generate_annex_iv.py`**: CLI to emit the map (Markdown or JSON), optionally from a
+  metadata file. Both exported at the top level (`aion_nexus.annex_iv_dossier` / `annex_iv_card`).
+
+### Honesty (workspace 6.31)
+This is a documentation SKELETON to accelerate a provider's own dossier — **NOT** the technical
+documentation, **NOT** a declaration of conformity, and **NOT** a statement that the system meets
+Annex IV. Point 8 (declaration of conformity) and the Article 9 risk management system are marked
+provider-owned; the forbidden-claim guard is extended so the generated text can never say
+"compliant" / "conforme" / "conformità". High-risk classification and the duty to produce Annex IV
+documentation depend on the use context and a formal assessment supported by legal review.
+
+### Verification
+- 7 new tests (all nine points present with required keys, no forbidden claims across metadata
+  shapes, readiness disclaims conformity, declaration-of-conformity is provider-owned, metadata
+  threading, certificate identity threading, card renders). Suite **373 → 380**; ruff clean.
+
 ## [2.9.0] — 2026-06-16 (The conformal guarantee, bound into the certificate and surfaced in the factory)
 
 v2.8.0 added conditional conformal as a library — but a verifier whose stronger guarantee

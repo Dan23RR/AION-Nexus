@@ -23,6 +23,8 @@ import pytest
 
 from aion_nexus.compliance import (
     _FORBIDDEN_CLAIMS,
+    annex_iv_card,
+    annex_iv_dossier,
     compliance_evidence,
     evidence_card,
 )
@@ -234,3 +236,73 @@ def test_accepts_certificate_dict(monkeypatch):
     from_dict = compliance_evidence(cert.as_dict())
     assert from_obj["certificate_ref"] == from_dict["certificate_ref"]
     assert len(from_obj["evidence"]) == len(from_dict["evidence"])
+
+
+# --------------------------------------------------------------------------- #
+# 7. Annex IV technical-documentation evidence map (v2.10.0)
+# --------------------------------------------------------------------------- #
+
+def _all_text(obj) -> str:
+    return json.dumps(obj, default=str).lower()
+
+
+def test_annex_iv_has_all_nine_points_with_required_keys():
+    d = annex_iv_dossier()
+    assert len(d["sections"]) == 9
+    numbers = [s["number"] for s in d["sections"]]
+    assert numbers == [str(i) for i in range(1, 10)]
+    for s in d["sections"]:
+        for key in ("title", "annex_iv_requirement", "aion_provides",
+                    "deployer_must_supply", "status", "limitation"):
+            assert s[key], f"section {s['number']} missing/empty {key}"
+
+
+def test_annex_iv_never_emits_forbidden_claims():
+    # Across several metadata shapes, neither the dict nor the card may claim conformity.
+    for md in (None, {}, {"intended_purpose": "advisory only", "architecture": "BiGRU",
+                         "datasets": "FEMTO", "harmonised_standards": "ISO 13374"}):
+        blob = _all_text(annex_iv_dossier(md)) + annex_iv_card(md).lower()
+        for claim in _FORBIDDEN_CLAIMS:
+            assert claim.lower() not in blob, f"forbidden claim {claim!r} leaked"
+        assert "compliant" not in blob          # the specific overclaim we refuse
+
+
+def test_annex_iv_readiness_is_not_a_conformity_measure():
+    d = annex_iv_dossier()
+    r = d["readiness"]
+    assert r["sections_total"] == 9
+    assert (r["sections_with_aion_evidence"] + r["sections_partial"]
+            + r["sections_deployer_owned"]) == 9
+    # The note must explicitly disclaim that this is a conformity/readiness measure.
+    assert "not a measure of regulatory conformity" in r["note"].lower()
+    assert "not the technical documentation" in d["disclaimer"].lower()
+
+
+def test_annex_iv_declaration_of_conformity_is_provider_owned():
+    # Point 8 must never claim AION supplies the declaration.
+    sec8 = next(s for s in annex_iv_dossier()["sections"] if s["number"] == "8")
+    assert sec8["status"] == "deployer-owned"
+    assert "only by the provider" in sec8["aion_provides"].lower()
+
+
+def test_annex_iv_uses_caller_metadata_else_marks_provider_owned():
+    with_md = annex_iv_dossier({"architecture": "BiGRU 1.06M params"})
+    sec2_with = next(s for s in with_md["sections"] if s["number"] == "2")
+    assert "BiGRU 1.06M params" in sec2_with["aion_provides"]
+    # Absent metadata -> the standards point is provider-owned (honest), not invented.
+    without = annex_iv_dossier()
+    sec7 = next(s for s in without["sections"] if s["number"] == "7")
+    assert sec7["status"] == "deployer-owned"
+
+
+def test_annex_iv_threads_certificate_identity(monkeypatch):
+    cert = _certify(monkeypatch, [0.97, 0.01, 0.01, 0.01])
+    d = annex_iv_dossier({"name": "AION-NEXUS"}, certificate=cert)
+    assert d["system_ref"]["model_id"] == cert.model_id
+
+
+def test_annex_iv_card_renders_markdown():
+    card = annex_iv_card({"version": "2.10.0", "documentation_date": "2026-06-16"})
+    assert card.startswith("# EU AI Act Annex IV")
+    assert "## 8. EU declaration of conformity" in card
+    assert "Limitation:" in card

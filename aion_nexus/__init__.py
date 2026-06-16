@@ -22,7 +22,12 @@ Two architecture versions supported, both verified against published numbers:
 `InferenceEngine.from_checkpoint()` auto-detects the architecture from the
 checkpoint's state_dict keys; no flag required for the common case.
 """
-from aion_nexus.compliance import compliance_evidence, evidence_card
+from aion_nexus.compliance import (
+    annex_iv_card,
+    annex_iv_dossier,
+    compliance_evidence,
+    evidence_card,
+)
 from aion_nexus.config import (
     CLASS_DESCRIPTIONS,
     CLASS_NAMES,
@@ -71,6 +76,7 @@ __all__ = [
     # Substrate Core: model-agnostic verification & certification layer
     "Verifier", "Certificate", "ConformalCalibrator", "verify_certificate",
     "compliance_evidence", "evidence_card",
+    "annex_iv_dossier", "annex_iv_card",
     # Constants
     "CLASS_NAMES", "CLASS_DESCRIPTIONS", "NUM_CLASSES",
     "SIGNAL_LENGTH", "NUM_CHANNELS", "SAMPLING_RATE_HZ", "MODEL_PARAM_COUNT",

@@ -82,6 +82,36 @@ calibratore); la mappatura Art. 15 lo ripete esplicitamente.
 
 ---
 
+## Annex IV — evidence map (v2.10.0)
+
+`annex_iv_dossier()` / `annex_iv_card()` (CLI: `python -m scripts.generate_annex_iv`)
+producono una **mappa di evidenza** dei nove punti dell'Annex IV (Art. 11): per
+ciascuno, *cosa fornisce AION* (artefatti concreti — certificato, model card,
+conformal evidence, gate OOD, audit-chain firmata, SBOM, factory bridge) e *cosa
+deve fornire il provider*. È uno **scheletro di documentazione** per accelerare il
+dossier del provider, **non** la documentazione tecnica, **non** una dichiarazione
+di conformità, **non** un'attestazione che il sistema soddisfi l'Annex IV.
+
+| # | Punto Annex IV | Status di default |
+|---|---|---|
+| 1 | Descrizione generale del sistema | parziale (AION + provider) |
+| 2 | Elementi e processo di sviluppo | parziale |
+| 3 | Monitoraggio, funzionamento, controllo | evidenza AION |
+| 4 | Appropriatezza delle metriche | evidenza AION |
+| 5 | Sistema di gestione del rischio (Art. 9) | **provider** |
+| 6 | Modifiche nel ciclo di vita | evidenza AION (CHANGELOG/RETRACTIONS) |
+| 7 | Standard armonizzati applicati | provider (JTC 21 non ancora in GUUE) |
+| 8 | Dichiarazione di conformità UE | **provider** (solo il provider può emetterla) |
+| 9 | Monitoraggio post-market (Art. 72) | parziale (AION fornisce la telemetria) |
+
+Il blocco `readiness` conta i punti con evidenza AION **dichiarando esplicitamente
+che NON è una misura di conformità**. Il guard dei claim proibiti vale anche qui:
+il testo generato non dice mai "compliant"/"conforme"/"conformità". La
+classificazione high-risk e l'obbligo di produrre l'Annex IV dipendono dal
+contesto d'uso e da una valutazione formale con revisione legale.
+
+---
+
 ## Riferimenti
 
 - Mappatura: [`aion_nexus/compliance.py`](../aion_nexus/compliance.py)
