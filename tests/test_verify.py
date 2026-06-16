@@ -607,8 +607,60 @@ def _ed_cert(monkeypatch):
     return cert, seed
 
 
-def test_schema_version_is_1_1():
-    assert CERT_SCHEMA_VERSION == "1.1"
+def test_schema_version_is_1_2():
+    assert CERT_SCHEMA_VERSION == "1.2"
+
+
+# --------------------------------------------------------------------------- #
+# Conditional-conformal claim (v2.9.0): hashed only when present, tamper-evident
+# --------------------------------------------------------------------------- #
+
+def _claim_cert(**kw):
+    base = dict(predicted_label=3, predicted_name="advanced", conformal_set=[3],
+                conformal_set_names=["advanced"], verdict="CERTIFIED", alpha=0.1, qhat=0.5)
+    base.update(kw)
+    return Certificate(**base)
+
+
+def test_conformal_claim_absent_is_backward_compatible_hash():
+    # A cert WITHOUT the new fields must hash byte-identically to one that sets them
+    # to None (the conditional-inclusion guarantees pre-2.9 certs are unaffected).
+    h_absent = _claim_cert().seal(scheme="none").content_hash
+    h_none = _claim_cert(conformal_method=None, coverage_guarantee=None).seal(scheme="none").content_hash
+    assert h_absent == h_none
+
+
+def test_conformal_claim_changes_hash_when_set():
+    h_plain = _claim_cert().seal(scheme="none").content_hash
+    h_claim = _claim_cert(conformal_method="class-conditional",
+                    coverage_guarantee="P(Y in C|Y=c) >= 1-alpha").seal(scheme="none").content_hash
+    assert h_plain != h_claim          # the claim is part of the certified decision
+
+
+def test_conformal_claim_is_tamper_evident():
+    seed = generate_seed()
+    pub = ed25519_pubkey_from_seed(seed)
+    cert = _claim_cert(conformal_method="marginal-split",
+                 coverage_guarantee="marginal").seal(seed, scheme="ed25519")
+    assert verify_certificate(cert, expected_pubkey=pub)["trusted"] is True
+    # Forge an UPGRADE of the guarantee claim on the wire.
+    forged = cert.as_dict()
+    forged["conformal_method"] = "class-conditional"
+    forged["coverage_guarantee"] = "P(Y in C|Y=c) >= 1-alpha"
+    res = verify_certificate(forged, expected_pubkey=pub)
+    assert res["integrity_ok"] is False    # the claim is bound into content_hash
+    assert res["trusted"] is False
+
+
+def test_verifier_certify_stamps_conformal_claim():
+    probs, true, cal, test = _synthetic_exchangeable()
+    v = Verifier(alpha=0.1, class_names=CLASS_NAMES).calibrate(probs[cal], true[cal])
+    cert = v.certify(probs[test][0], conformal_method="class-conditional",
+                     coverage_guarantee="per-class")
+    assert cert.conformal_method == "class-conditional"
+    assert cert.coverage_guarantee == "per-class"
+    # And it is hashed (recompute confirms it is part of the canonical payload).
+    assert cert.compute_content_hash() == cert.content_hash
 
 
 def test_ttl_sets_window_jti_and_signs_payload(monkeypatch):

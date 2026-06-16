@@ -119,6 +119,9 @@ class FactoryVerdict:
     model_id: str | None = None
     valid_until: str | None = None
     key_id: str | None = None
+    # Which conformal guarantee this verdict carries (v2.9.0). None = marginal/unstated.
+    conformal_method: str | None = None
+    coverage_guarantee: str | None = None
     certificate: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ #
@@ -224,5 +227,7 @@ def to_factory_verdict(cert: Any) -> FactoryVerdict:
         model_id=d.get("model_id"),
         valid_until=d.get("valid_until"),
         key_id=d.get("key_id"),
+        conformal_method=d.get("conformal_method"),
+        coverage_guarantee=d.get("coverage_guarantee"),
         certificate=dict(d),
     )

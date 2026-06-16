@@ -71,9 +71,15 @@ Runnable walkthrough: [`examples/08_conditional_conformal.py`](../examples/08_co
 
 ## How it composes with the rest
 
-- **The certificate / factory bridge** carries whatever conformal verdict it is
-  given — a class-conditional or weighted set is a stronger verdict that the
-  Sparkplug B / OPC UA bridge (`aion_nexus.connect`, v2.7.0) publishes unchanged.
+- **The certificate records the guarantee (v2.9.0).** `Verifier.certify(...,
+  conformal_method=, coverage_guarantee=)` stamps WHICH method produced the verdict
+  and WHAT it guarantees, bound **tamper-evidently** into `content_hash` (hashed only
+  when present, so pre-2.9 certificates are unaffected). Forging or upgrading the
+  claim on the wire breaks the hash.
+- **The factory bridge surfaces it.** The Sparkplug B payload carries
+  `AION/conformal_method` / `AION/coverage_guarantee` metrics and the OPC UA model the
+  `ConformalMethod` / `CoverageGuarantee` variables — so a consumer sees not just the
+  verdict but the guarantee it holds, and can re-verify the claim offline.
 - **The base `Verifier`** wraps the marginal `ConformalCalibrator`; the
   class-conditional calibrator has the same `predict_set(probs)` signature and is a
   drop-in for callers that want per-class coverage in the served verdict. Mondrian /

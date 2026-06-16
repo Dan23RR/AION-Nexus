@@ -4,6 +4,40 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] — 2026-06-16 (The conformal guarantee, bound into the certificate and surfaced in the factory)
+
+v2.8.0 added conditional conformal as a library — but a verifier whose stronger guarantee
+lives only in a library repeats the demolition's kill-shot #3 ("the verifier is not in the
+product"). This release WIRES the guarantee into the deployable: the certificate now records
+**which** conformal method produced the verdict and **what** coverage it guarantees, bound
+**tamper-evidently** into the signature, and the factory bridge publishes it. Backward-compatible
+(no signature/hash break for existing certificates).
+
+### Added — the conformal claim, in the certificate
+- `Certificate` gains `conformal_method` and `coverage_guarantee` (e.g. `"class-conditional"` /
+  `"P(Y∈C|Y=c) ≥ 1−α"`). They are hashed into `content_hash` **ONLY when present**, so a
+  certificate minted WITHOUT them hashes **byte-identically** to a pre-2.9 certificate (full
+  backward compatibility), while a certificate that DOES claim a conditional guarantee makes
+  that claim tamper-evident: forging "per-class coverage" onto a marginal verdict, or upgrading
+  the claim on the wire, breaks the hash. `CERT_SCHEMA_VERSION` → `1.2` (provenance only; no
+  signing-payload change, so v2.6–2.8 certificates still verify).
+- `Verifier.certify(..., conformal_method=, coverage_guarantee=)` stamps the claim — a caller
+  using a class-conditional / Mondrian / weighted / ACI calibrator records the guarantee its
+  verdict carries.
+
+### Added — surfaced on the factory bus
+- `FactoryVerdict` carries `conformal_method` / `coverage_guarantee`; the Sparkplug B payload
+  adds `AION/conformal_method` and `AION/coverage_guarantee` metrics, and the OPC UA model adds
+  `ConformalMethod` / `CoverageGuarantee` variables. A consumer on the bus sees not just the
+  verdict but the GUARANTEE it carries — and can still re-verify the (tamper-evident) claim
+  offline with the public key.
+
+### Verification
+- 5 new tests: backward-compatible hashing (absent field ⇒ identical hash), the claim changes
+  the hash when set, the claim is tamper-evident (forged upgrade ⇒ integrity fails / not
+  trusted), `Verifier.certify` stamps it, and the bridge surfaces it tamper-evidently. Suite
+  **368 → 373**; ruff clean.
+
 ## [2.8.0] — 2026-06-16 (Conditional conformal: past the marginal guarantee)
 
 Closes the demolition's kill-shot #5 on the verifier axis: conformal coverage was

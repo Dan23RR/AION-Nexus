@@ -252,7 +252,10 @@ a rare fault class can't be silently under-covered), `MondrianConformalCalibrato
 (covariate shift), and `AdaptiveConformalGate` (online ACI — long-run coverage on a
 non-stationary stream with **no** exchangeability assumption). See
 [`examples/08_conditional_conformal.py`](./examples/08_conditional_conformal.py) and
-[`docs/CONFORMAL_ADVANCED.md`](./docs/CONFORMAL_ADVANCED.md).
+[`docs/CONFORMAL_ADVANCED.md`](./docs/CONFORMAL_ADVANCED.md). **(v2.9.0)** the certificate
+records which method produced the verdict (`conformal_method` / `coverage_guarantee`), bound
+**tamper-evidently** into the hash and surfaced on the factory bus — so the verdict carries
+the guarantee it holds, and you can't forge a stronger claim onto it.
 
 ### Honest caveats (read before quoting any of this)
 

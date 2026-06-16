@@ -231,6 +231,37 @@ def test_expired_certificate_on_the_bus_is_not_trusted():
     assert res["trusted"] is False
 
 
+def test_bridge_carries_conformal_guarantee_tamper_evidently():
+    seed = generate_seed()
+    cert = Certificate(
+        predicted_label=3, predicted_name="advanced", conformal_set=[3],
+        conformal_set_names=["advanced"], verdict="CERTIFIED",
+        conformal_method="class-conditional",
+        coverage_guarantee="P(Y in C|Y=c) >= 1-alpha")
+    cert.seal(seed, scheme="ed25519")
+
+    # The mapping spine carries the claim...
+    fv = to_factory_verdict(cert)
+    assert fv.conformal_method == "class-conditional"
+
+    # ...Sparkplug surfaces it as metrics...
+    metrics = {m["name"]: m["value"]
+               for m in decode_payload(build_sparkplug_payload(cert, seq=1))["metrics"]}
+    assert metrics["AION/conformal_method"] == "class-conditional"
+    assert metrics["AION/coverage_guarantee"] == "P(Y in C|Y=c) >= 1-alpha"
+
+    # ...OPC UA surfaces it...
+    model = build_condition_model(cert)
+    assert model["analysis"]["ConformalMethod"] == "class-conditional"
+
+    # ...and forging an UPGRADE of the guarantee on the bus is caught.
+    cert_on_bus = json.loads(metrics["AION/certificate"])
+    cert_on_bus["coverage_guarantee"] = "P(Y in C) = 1 (proven)"   # overclaim
+    res = verify_certificate(cert_on_bus, expected_pubkey=ed25519_pubkey_from_seed(seed))
+    assert res["integrity_ok"] is False
+    assert res["trusted"] is False
+
+
 def test_self_signed_without_expected_key_is_not_trusted():
     # Only the EMBEDDED pubkey available (no out-of-band expected key) -> SELF-SIGNED.
     cert, _ = _signed_cert("CERTIFIED", "advanced", ("advanced",), 3)

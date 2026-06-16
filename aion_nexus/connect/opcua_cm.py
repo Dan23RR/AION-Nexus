@@ -118,6 +118,9 @@ def build_condition_model(cert: Any) -> dict:
         "KeyId": verdict.key_id,
         "ValidUntil": verdict.valid_until,
         "ModelId": verdict.model_id,
+        # Which conformal guarantee this verdict carries (v2.9.0).
+        "ConformalMethod": verdict.conformal_method,
+        "CoverageGuarantee": verdict.coverage_guarantee,
         # The crown jewel: the full signed certificate, on the OPC UA bus.
         "Certificate": verdict.certificate_json(),
     }
@@ -180,7 +183,8 @@ class CertifiedConditionMonitoringServer:
             ("Severity", 0), ("Quality", QUALITY_GOOD), ("QualityName", "Good"),
             ("ActiveState", "Inactive"), ("ConditionState", ""), ("Message", ""),
             ("Authentication", ""), ("ContentHash", ""), ("PublicKey", ""),
-            ("KeyId", ""), ("ValidUntil", ""), ("ModelId", ""), ("Certificate", ""),
+            ("KeyId", ""), ("ValidUntil", ""), ("ModelId", ""),
+            ("ConformalMethod", ""), ("CoverageGuarantee", ""), ("Certificate", ""),
         ]
         for name, default in var_specs:
             self._vars[name] = await obj.add_variable(idx, name, default)
@@ -205,6 +209,8 @@ class CertifiedConditionMonitoringServer:
             "Authentication": a["Authentication"], "ContentHash": a["ContentHash"],
             "PublicKey": a["PublicKey"] or "", "KeyId": a["KeyId"] or "",
             "ValidUntil": a["ValidUntil"] or "", "ModelId": a["ModelId"] or "",
+            "ConformalMethod": a["ConformalMethod"] or "",
+            "CoverageGuarantee": a["CoverageGuarantee"] or "",
             "Certificate": a["Certificate"],
         }
         for name, value in flat.items():

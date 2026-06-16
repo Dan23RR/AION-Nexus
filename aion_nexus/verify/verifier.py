@@ -123,7 +123,9 @@ class Verifier:
                 scheme: str = "auto",
                 ttl_seconds: int | None = None,
                 key_id: str | None = None,
-                now_iso: str | None = None) -> Certificate:
+                now_iso: str | None = None,
+                conformal_method: str | None = None,
+                coverage_guarantee: str | None = None) -> Certificate:
         """Certify ONE sample's probability vector into a sealed :class:`Certificate`.
 
         ``probs`` is a 1-D probability vector (or a single-row 2-D array).
@@ -193,6 +195,13 @@ class Verifier:
             input_sha256=input_sha,
             model_id=model_id,
             assurance=CONFORMAL_ASSURANCE,   # conformal => EMPIRICAL, never proven
+            # Optional conditional-conformal claim (v2.9.0). Bound into content_hash
+            # only when set (see Certificate.canonical_payload) — a caller using a
+            # class-conditional / Mondrian / weighted / ACI calibrator stamps the
+            # method + guarantee here so the served verdict carries (tamper-evidently)
+            # WHICH coverage guarantee it holds. Default None = marginal/unstated.
+            conformal_method=conformal_method,
+            coverage_guarantee=coverage_guarantee,
         )
         # An explicit seed forces the asymmetric (Ed25519) path; otherwise the seal
         # resolves by precedence (Ed25519 seed env > HMAC key env > NONE). The

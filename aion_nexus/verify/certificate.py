@@ -87,7 +87,9 @@ from datetime import datetime, timedelta, timezone
 from . import assurance as _assurance
 from . import signing as _signing
 
-CERT_SCHEMA_VERSION = "1.1"  # 1.1: signing_payload binds expiry/identity (v2.6.0)
+CERT_SCHEMA_VERSION = "1.2"  # 1.1: signing_payload binds expiry/identity (v2.6.0);
+#                              1.2: optional conformal_method/coverage_guarantee,
+#                              hashed only when present (v2.9.0, backward-compatible)
 
 # Authentication levels (the certificate's `authentication` field).
 AUTH_NONE = "NONE"            # integrity hash only — NOT tamper-evident vs. an adversary
@@ -165,6 +167,16 @@ class Certificate:
     # Default EMPIRICAL: a conformal verdict is statistical, never a proof. HASHED
     # (in canonical_payload) so a silent overclaim of the tier breaks content_hash.
     assurance: str = _assurance.EMPIRICAL
+    # --- conditional-conformal provenance (v2.9.0; hashed ONLY when set) ---
+    # Which conformal calibrator produced the set, and the guarantee it carries
+    # (e.g. per-class / per-group / covariate-shift / online). These are bound into
+    # content_hash ONLY when present, so a certificate minted WITHOUT them hashes
+    # byte-identically to a pre-2.9 certificate (full backward compatibility) while a
+    # certificate that DOES claim a conditional guarantee makes that claim
+    # TAMPER-EVIDENT: forging "per-class coverage" onto a marginal verdict breaks the
+    # hash. None => the marginal/default guarantee, recorded as absent (not asserted).
+    conformal_method: str | None = None
+    coverage_guarantee: str | None = None
     # --- provenance (NOT hashed) ---
     schema_version: str = CERT_SCHEMA_VERSION
     cert_id: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -196,7 +208,7 @@ class Certificate:
         verification aid, not a decided fact), and the integrity/authenticity
         fields themselves, so the hash is deterministic for identical decisions.
         """
-        return {
+        payload = {
             "predicted_label": int(self.predicted_label),
             "predicted_name": str(self.predicted_name),
             "conformal_set": [int(c) for c in self.conformal_set],
@@ -209,6 +221,15 @@ class Certificate:
             # Tier is HASHED: empirical->proven without re-signing breaks the hash.
             "assurance": str(self.assurance),
         }
+        # Conditional-conformal claim — bound into the hash ONLY when asserted, so a
+        # cert without it stays byte-identical to a pre-2.9 cert (backward compat),
+        # and a cert WITH it cannot have the claim forged without breaking the hash.
+        # MUST mirror the reconstruction in verify_certificate().
+        if self.conformal_method is not None:
+            payload["conformal_method"] = str(self.conformal_method)
+        if self.coverage_guarantee is not None:
+            payload["coverage_guarantee"] = str(self.coverage_guarantee)
+        return payload
 
     def compute_content_hash(self) -> str:
         """SHA-256 over the canonical payload (deterministic for identical inputs)."""
@@ -492,6 +513,14 @@ def verify_certificate(cert, key: str | bytes | None = None, *,
         # if they were sealed with that default — older certs carry it explicitly.
         "assurance": str(d.get("assurance", _assurance.EMPIRICAL)),
     }
+    # Conditional-conformal claim — included in the recomputed payload ONLY when the
+    # certificate carries it, mirroring Certificate.canonical_payload() exactly. A
+    # pre-2.9 cert (field absent) recomputes to the same hash as when minted; a cert
+    # claiming a conditional guarantee binds that claim (tampering it breaks the hash).
+    if d.get("conformal_method") is not None:
+        payload["conformal_method"] = str(d["conformal_method"])
+    if d.get("coverage_guarantee") is not None:
+        payload["coverage_guarantee"] = str(d["coverage_guarantee"])
     integrity_ok = _sha256_canonical(payload) == d.get("content_hash")
     content_hash = str(d.get("content_hash", ""))
     # The signature covers the FULL signing payload (decision + expiry + identity).

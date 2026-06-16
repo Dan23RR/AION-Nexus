@@ -207,6 +207,11 @@ def verdict_to_metrics(verdict: FactoryVerdict, *, timestamp_ms: int | None = No
                      is_null=verdict.valid_until is None))
     m.append(Metric("AION/model_id", DT_STRING, verdict.model_id, timestamp_ms=ts,
                      is_null=verdict.model_id is None))
+    # Which conformal guarantee this verdict carries (v2.9.0). Null = marginal/unstated.
+    m.append(Metric("AION/conformal_method", DT_STRING, verdict.conformal_method,
+                     timestamp_ms=ts, is_null=verdict.conformal_method is None))
+    m.append(Metric("AION/coverage_guarantee", DT_STRING, verdict.coverage_guarantee,
+                     timestamp_ms=ts, is_null=verdict.coverage_guarantee is None))
     if include_certificate:
         m.append(Metric("AION/certificate", DT_STRING, verdict.certificate_json(),
                         timestamp_ms=ts))

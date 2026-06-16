@@ -124,6 +124,7 @@ await srv.stop()
 | `AION/assurance` | String | assurance tier (conformal ⇒ `empirical`, never proven) |
 | `AION/conformal_set` | String | coverage-controlled label set |
 | `AION/content_hash`, `AION/authentication`, `AION/pubkey`, `AION/key_id`, `AION/valid_until` | String | verification handles |
+| `AION/conformal_method`, `AION/coverage_guarantee` | String | which conformal guarantee the verdict carries (v2.9.0; tamper-evident in the certificate) |
 | `AION/certificate` | String | **the full signed certificate JSON** — what an auditor verifies |
 
 ## Standards context
