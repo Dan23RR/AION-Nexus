@@ -243,6 +243,17 @@ no extra dependency; live transports use `pip install "aion-nexus[factory]"`. Se
 [`examples/07_factory_bridge.py`](./examples/07_factory_bridge.py) and
 [`docs/FACTORY_INTEGRATION.md`](./docs/FACTORY_INTEGRATION.md).
 
+**Conditional coverage, past the marginal guarantee (v2.8.0).** Marginal conformal coverage
+is valid only under exchangeability — cross-bearing deployment breaks it. `aion_nexus.verify`
+adds four calibrators that go further, each honest about its assumption and **proven by
+empirical-coverage simulation**: `ClassConditionalConformalCalibrator` (per-class coverage —
+a rare fault class can't be silently under-covered), `MondrianConformalCalibrator` (per-bearing
+/ per-regime coverage — the honest answer to the cross-bearing break), `WeightedConformalCalibrator`
+(covariate shift), and `AdaptiveConformalGate` (online ACI — long-run coverage on a
+non-stationary stream with **no** exchangeability assumption). See
+[`examples/08_conditional_conformal.py`](./examples/08_conditional_conformal.py) and
+[`docs/CONFORMAL_ADVANCED.md`](./docs/CONFORMAL_ADVANCED.md).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the

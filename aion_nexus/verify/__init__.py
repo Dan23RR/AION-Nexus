@@ -66,6 +66,13 @@ from .certificate import (
 )
 from .cheatbench import run_cheatbench
 from .conformal import ConformalCalibrator, ConformalResult, softmax
+from .conformal_advanced import (
+    AdaptiveConformalGate,
+    ClassConditionalConformalCalibrator,
+    MondrianConformalCalibrator,
+    WeightedConformalCalibrator,
+    finite_sample_level,
+)
 from .signing import (
     HmacSigner,
     LocalEd25519Signer,
@@ -86,6 +93,12 @@ __all__ = [
     "Certificate",
     "ConformalCalibrator",
     "ConformalResult",
+    # conditional conformal (beyond marginal coverage)
+    "ClassConditionalConformalCalibrator",
+    "MondrianConformalCalibrator",
+    "WeightedConformalCalibrator",
+    "AdaptiveConformalGate",
+    "finite_sample_level",
     "CertificateStore",
     "ChainResult",
     "verify_certificate",

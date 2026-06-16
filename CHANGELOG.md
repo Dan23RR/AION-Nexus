@@ -4,6 +4,49 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-06-16 (Conditional conformal: past the marginal guarantee)
+
+Closes the demolition's kill-shot #5 on the verifier axis: conformal coverage was
+**marginal only**, valid solely under exchangeability — and cross-bearing / cross-machine
+deployment breaks it. This release turns that weakness into the claimable frontier (Barber,
+Candès, Ramdas & Tibshirani, *"Conformal prediction beyond exchangeability"*, 2023): four
+calibrators with **stronger or different** guarantees, each HONEST about its own assumption
+and each **proven by empirical-coverage simulation** (not prose). No breaking changes; the
+base `ConformalCalibrator` is untouched. See `docs/CONFORMAL_ADVANCED.md`.
+
+### Added — `aion_nexus.verify.conformal_advanced`
+- **`ClassConditionalConformalCalibrator`** — per-class coverage
+  `P(Y∈C(X) | Y=c) ≥ 1−α` for every class (Sadinle, Lei & Wasserman 2019). Stops a rare,
+  critical fault class being silently under-covered to prop up the marginal average.
+  `small_classes` flags classes with too few calibration points (never hidden).
+- **`MondrianConformalCalibrator`** — per-group coverage
+  `P(Y∈C(X) | group(X)=g) ≥ 1−α` for every covariate-defined group (per bearing / regime):
+  the honest answer to the cross-bearing break. `fell_back_groups` records test groups never
+  calibrated (no per-group claim for those).
+- **`WeightedConformalCalibrator`** — coverage under covariate shift with weighted quantiles
+  (Tibshirani, Foygel Barber, Candès & Ramdas 2019); reduces EXACTLY to standard split CP at
+  `w≡1`.
+- **`AdaptiveConformalGate`** (ACI, Gibbs & Candès 2021) — online long-run coverage on a
+  NON-stationary stream with **no** exchangeability assumption; the realised miscoverage
+  frequency converges to α for arbitrary drift, given online label feedback.
+- `finite_sample_level()` helper; all four exported from `aion_nexus.verify`.
+
+### Verification (the guarantees are proven, not claimed)
+- `tests/test_conformal_advanced.py` (10 tests) SIMULATES coverage and asserts each method
+  delivers its guarantee AND that the marginal calibrator FAILS the same scenario: a rare
+  hard class (marginal 0.15 → class-conditional 0.93), a hard regime (marginal 0.80 →
+  Mondrian 0.90), covariate shift recovery, and ACI on a drifting stream (fixed gate 0.19 →
+  ACI 0.11 miscoverage). Suite **358 → 368**; ruff clean.
+- `examples/08_conditional_conformal.py`: the same three contrasts, runnable with no
+  checkpoint and no optional dependency.
+
+### Honesty (workspace 6.31)
+None of these is a proof of correctness or escapes its own assumption: class/group-conditional
+CP still needs *within*-class / *within*-group exchangeability; weighted CP is only as good as
+the weight estimate; ACI guarantees a LONG-RUN AVERAGE (not per-step) and needs label feedback.
+Each calibrator exposes its `guarantee` and `coverage_valid_under`. All conformal evidence
+stays the `EMPIRICAL` assurance tier — statistical, never a proof.
+
 ## [2.7.0] — 2026-06-16 (Orizzonte 1: the signed verdict enters the factory's own protocol fabric)
 
 The v2.6.0 demolition's hardest line was kill-shot #1: **0 lines of OPC UA / MQTT
