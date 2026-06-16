@@ -99,6 +99,30 @@ CycloneDX SBOM; `scripts/audit_supply_chain.py --strict` is **fail-closed** (non
 on a high CVE or a missing `pip-audit`). Recommended for releases: hash-pinned lockfile
 (`pip-compile --generate-hashes`) and signed release/container artifacts (cosign / SLSA).
 
+### Factory bridge dependencies (v2.7.0 — `aion_nexus.connect`)
+
+The bridge publishes SIGNED verdicts into the factory's protocol fabric. Its
+security posture is deliberately conservative:
+
+- **No new core dependency.** Building Sparkplug B payloads and OPC UA condition
+  models uses an in-package protobuf codec (`aion_nexus/connect/_protobuf.py`)
+  with no runtime dependency. The Apache/BSD/MIT core guarantee is unchanged.
+- **Optional transports, split by licence.** `pip install "aion-nexus[factory-mqtt]"`
+  pulls **paho-mqtt** (EPL-2.0 / EDL-1.0, BSD-style — permissive).
+  `pip install "aion-nexus[factory-opcua]"` pulls **asyncua** (opcua-asyncio),
+  which is **LGPL-3.0** — an optional, separately-installed, dynamically-imported,
+  not-bundled dependency that is intentionally **outside** the Apache/BSD/MIT core
+  guarantee. Verify it against your compliance policy before enabling the OPC UA
+  extra; a licence-sensitive deployment can take only the permissive MQTT path.
+- **The bridge does not weaken the certificate.** It carries the existing signed
+  certificate verbatim; verification is unchanged (`verify_certificate` against
+  the issuer's out-of-band public key). It does not introduce a new minting
+  surface, and an UNSIGNED certificate on the bus is reported `actionable=false`
+  / OPC UA `Quality = Uncertain` (never silently trusted).
+- **Transport security is the operator's.** Put MQTT behind TLS + broker
+  authn/authz; put OPC UA behind its security policies (Sign&Encrypt, user auth).
+  The bridge publishes the verdict; it does not secure the wire.
+
 ## Hardening checklist for production deployments
 
 - [ ] Run container as non-root (Dockerfile already enforces this).

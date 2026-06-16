@@ -4,6 +4,48 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] — 2026-06-16 (Orizzonte 1: the signed verdict enters the factory's own protocol fabric)
+
+The v2.6.0 demolition's hardest line was kill-shot #1: **0 lines of OPC UA / MQTT
+Sparkplug** — produce a certificate and the PLC / historian / UNS does not know AION
+exists. This release closes it: `aion_nexus.connect` carries the **signed certificate**
+onto Sparkplug B (MQTT / Unified Namespace) and OPC UA (SCADA / historian), so a third
+party verifies AION's verdict **offline, off their own bus, with the public key alone** —
+the one thing no incumbent ships. See `AION_NEXUS_RD/18_PATH_TO_UNIGNORABLE.md` and
+`docs/FACTORY_INTEGRATION.md`. No breaking changes (the verify layer is unchanged).
+
+### Added — `aion_nexus.connect` (the factory bridge)
+- **`to_factory_verdict(cert)` → `FactoryVerdict`**: the dependency-free spine that
+  separates the **diagnosis** (`normal…advanced`) from the **trust verdict**
+  (`CERTIFIED/REVIEW/ABSTAIN`) and carries the whole signed certificate for offline
+  re-verification.
+- **Sparkplug B**: `build_sparkplug_payload` / `encode_payload` / `decode_payload` emit a
+  faithful **Sparkplug B 3.0 `Payload`** protobuf (the full signed cert rides as the
+  `AION/certificate` metric), via an in-package protobuf codec with **no runtime
+  dependency**. `SparkplugPublisher` publishes to a live MQTT broker over the standard
+  `spBv1.0/{group}/{type}/{edge}/{device}` namespace (seq wrapping, `NDEATH` last-will).
+- **OPC UA**: `build_condition_model` maps a verdict onto **OPC UA Alarms & Conditions
+  (Part 9)** semantics; `CertifiedConditionMonitoringServer` exposes it as a live `asyncua`
+  address space (`AionVerification` node, incl. the `Certificate` variable).
+- `examples/07_factory_bridge.py`: publish → decode-off-the-bus → verify → tamper-caught →
+  honesty gate → OPC UA view, end-to-end with **zero** optional dependencies.
+
+### Added — the honesty gate, in the factory's language (workspace 6.31)
+- An **`ABSTAIN`** (OOD / low confidence) or **`REVIEW`** (ambiguous conformal set) can
+  **never** present as a high-severity, machine-stop alarm: severity is **capped by the
+  trust verdict**. `ABSTAIN → OPC UA Quality = Uncertain` (OPC UA's own "I am not sure"),
+  low severity, **not** an active alarm. An unsigned certificate is `actionable=false` /
+  Quality Uncertain. Mirrors the serving pipeline's no-escalation-on-abstain rule.
+
+### Verification & supply chain
+- **Wire-compatibility proven**: `tests/test_connect.py` decodes our Sparkplug bytes with
+  **Google's reference protobuf decoder** and re-verifies the extracted certificate as
+  `trusted` (skipped if `protobuf` is absent — never a hard test dependency). 23 new tests;
+  suite **335 → 358**.
+- **Optional, transport-split extras**: `[factory-mqtt]` (paho-mqtt; permissive licence),
+  `[factory-opcua]` (asyncua, **LGPL-3.0** — disclosed in `SECURITY.md`, outside the
+  Apache/BSD/MIT core guarantee), `[factory]` (both). Building payloads/models needs neither.
+
 ## [2.6.0] — 2026-06-15 (Orizzonte 0: the verification weapon, wired into the product and enterprise-grade)
 
 A demolition against the bar "could Siemens/Beckhoff/SKF ignore this?" found that the one

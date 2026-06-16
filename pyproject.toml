@@ -56,6 +56,25 @@ onnx = [
     "onnx>=1.16.0",
     "onnxruntime>=1.17.0",
 ]
+# Factory bridge (aion_nexus.connect): publish SIGNED verdicts into the factory's
+# own protocol fabric. Split by transport so a license-sensitive operator can take
+# only the permissive MQTT path. BUILDING payloads/models needs NEITHER — the
+# in-package protobuf codec has no runtime dependency; these are only for the live
+# transports.
+factory-mqtt = [
+    "paho-mqtt>=2.0.0,<3.0.0",   # Sparkplug B over MQTT; EPL-2.0 / EDL-1.0 (BSD-style)
+]
+factory-opcua = [
+    # OPC UA live server. asyncua (opcua-asyncio) is LGPL-3.0 — an OPTIONAL,
+    # separately-installed, dynamically-imported dependency, NOT bundled/redistributed.
+    # It is intentionally OUTSIDE the Apache/BSD/MIT core-dependency guarantee; verify
+    # it against your compliance policy before enabling the OPC UA extra (see SECURITY.md).
+    "asyncua>=1.0.0,<2.0.0",
+]
+factory = [
+    "paho-mqtt>=2.0.0,<3.0.0",
+    "asyncua>=1.0.0,<2.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/Dan23RR/aion-nexus"

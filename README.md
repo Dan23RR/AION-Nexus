@@ -232,6 +232,17 @@ sign; a weak seed is refused at the boundary, and each certificate carries a sig
 window (anti-replay). See [`examples/06_certified_serving.py`](./examples/06_certified_serving.py)
 and the [security policy](./SECURITY.md#certificate-signing-keys-v260--the-substrate-core-verification-layer).
 
+**In the factory's own protocol fabric (v2.7.0).** `aion_nexus.connect` carries the signed
+certificate onto **Sparkplug B** (MQTT / Unified Namespace) and **OPC UA** (Alarms &
+Conditions / Condition Monitoring), so a Siemens / Beckhoff / SKF integrator pulls AION's
+verdict off **their own bus** and verifies it offline with the public key alone — and the
+Sparkplug bytes are proven wire-compatible against the reference protobuf decoder. The bridge
+stays honest: an `ABSTAIN`/`REVIEW` is **never** rendered as a machine-stop alarm (severity is
+capped by the trust verdict; `ABSTAIN → OPC UA Quality = Uncertain`). Building payloads needs
+no extra dependency; live transports use `pip install "aion-nexus[factory]"`. See
+[`examples/07_factory_bridge.py`](./examples/07_factory_bridge.py) and
+[`docs/FACTORY_INTEGRATION.md`](./docs/FACTORY_INTEGRATION.md).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the
