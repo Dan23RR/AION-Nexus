@@ -268,6 +268,16 @@ certificate, so a model that is confidently wrong cross-machine is caught (`CERT
 catches disagreement; it is not a cross-*machine* accuracy cure (diversity, not capacity, is the
 wall). See [`examples/09_physics_verifier.py`](./examples/09_physics_verifier.py).
 
+**Leakage-free evaluation as a feature (v2.13.0).** Evaluation leakage is endemic in this field
+(random window-level splits share bearings between train and test, inflating 95-99% accuracy that
+collapses to 35-60% under bearing-disjoint splits) — so vendor numbers can't be trusted.
+`aion_nexus.evaluation` ships honest evaluation: `check_group_disjoint()` is a machine-checkable
+leakage audit of any split; `evaluate_leave_one_group_out()` reports an honest **interval** (mean ±
+std, prevalence-independent macro-AUROC/F1), not a single number; and the `EvaluationReport` binds the
+protocol + leakage check + intervals into a **signed attestation** verifiable offline — the
+"measured leakage-free" claim made tamper-evident. See
+[`examples/10_leakage_free_eval.py`](./examples/10_leakage_free_eval.py).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the

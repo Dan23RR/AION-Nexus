@@ -4,6 +4,38 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.0] — 2026-06-16 (Leakage-free evaluation as a feature: the honest number, attested)
+
+The architecture-leap roadmap's #2. Evaluation leakage is endemic in bearing-fault benchmarking
+(Hendriks et al. 2022: 40/41 CWRU studies leaked; arXiv:2509.22267: 95-99% under random splits
+collapses to 35-60% under bearing-disjoint splits) — so buyers cannot trust vendor accuracy numbers,
+the precise opening for an independent verifier. This ships honest evaluation AS a feature. No
+breaking changes; zero modeling risk.
+
+### Added — `aion_nexus.evaluation`
+- **`check_group_disjoint(train_groups, test_groups)`**: the machine-checkable leakage detector —
+  given the bearing/recording/machine id of every sample, it proves whether a claimed split is
+  group-disjoint, so a vendor's "99%" can be audited with a yes/no.
+- **`evaluate_leave_one_group_out(predict_fn, X, y, groups)`**: a model-agnostic leave-one-group-out
+  harness that reports an HONEST INTERVAL (mean ± std across folds), not a single stratified number,
+  with prevalence-independent metrics (`macro_auroc`, `macro_f1`, `per_class_recall`, `honest_interval`).
+- **`EvaluationReport`** + **`verify_evaluation_report`**: binds the protocol + leakage check + honest
+  intervals into a `content_hash`, signable with the same Ed25519/HMAC primitives as the per-decision
+  certificate — so the "measured leakage-free" claim is tamper-evident and third-party-verifiable offline.
+
+### Verification
+- 9 tests, incl. the headline: the SAME model/data give macro-F1 ~1.0 under a leaky random split but
+  ~0.30 ± 0.18 under leave-one-bearing-out (the documented collapse), the detector flags the leak, and
+  the signed report verifies + breaks on a forged number. Suite **393 → 402**; ruff clean.
+  Example: `examples/10_leakage_free_eval.py`.
+
+### Honesty (workspace 6.31)
+The leakage detector verifies disjointness of the GROUP IDS the caller supplies — it cannot detect
+leakage those ids do not capture (overlapping sliding windows if you only grouped by bearing,
+operating-condition leakage if you only grouped by machine). The report attests the PROTOCOL and
+reports the numbers honestly; it does not claim the numbers are good, only that they were measured
+the way it says.
+
 ## [2.12.0] — 2026-06-16 (Covariate-shift conformal at deploy: estimate the weights from unlabeled target data)
 
 The architecture-leap roadmap's #3: convert the cross-machine generalization wall INTO the product —

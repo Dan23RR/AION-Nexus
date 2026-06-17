@@ -38,6 +38,13 @@ from aion_nexus.config import (
     SIGNAL_LENGTH,
 )
 from aion_nexus.degradation import DegradationEstimate, estimate_degradation
+from aion_nexus.evaluation import (
+    EvaluationReport,
+    check_group_disjoint,
+    evaluate_leave_one_group_out,
+    macro_auroc,
+    verify_evaluation_report,
+)
 from aion_nexus.few_shot import FewShotAdapter
 from aion_nexus.inference import InferenceEngine, PredictionResult
 from aion_nexus.model import AIONNexus, create_aion_nexus
@@ -83,6 +90,9 @@ __all__ = [
     # Physics front-end + model-agnostic second-opinion verifier (RPM-invariant orders)
     "BearingGeometry", "PhysicsVerdict", "physics_consistency",
     "fault_order_energy", "order_spectrum",
+    # Leakage-free evaluation as a feature (the honest number, attested)
+    "evaluate_leave_one_group_out", "check_group_disjoint", "EvaluationReport",
+    "verify_evaluation_report", "macro_auroc",
     # Substrate Core: model-agnostic verification & certification layer
     "Verifier", "Certificate", "ConformalCalibrator", "verify_certificate",
     "compliance_evidence", "evidence_card",
