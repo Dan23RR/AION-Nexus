@@ -46,6 +46,7 @@ from aion_nexus.evaluation import (
     verify_evaluation_report,
 )
 from aion_nexus.few_shot import FewShotAdapter
+from aion_nexus.foundation import ExternalEncoderAdapter, wrap_foundation_encoder
 from aion_nexus.inference import InferenceEngine, PredictionResult
 from aion_nexus.model import AIONNexus, create_aion_nexus
 from aion_nexus.model_v6 import V6_PARAM_COUNT_4CLASS, AIONNexusV6, create_aion_nexus_v6
@@ -85,6 +86,8 @@ __all__ = [
     # Engine + utilities
     "InferenceEngine", "PredictionResult", "FewShotAdapter",
     "preprocess_signal", "validate_signal",
+    # Ride a frozen foundation encoder (UniFault/MOMENT/...) + few-shot head
+    "ExternalEncoderAdapter", "wrap_foundation_encoder",
     # Degradation-stage (honest coarse positional proxy, NOT calibrated RUL)
     "DegradationEstimate", "estimate_degradation",
     # Physics front-end + model-agnostic second-opinion verifier (RPM-invariant orders)

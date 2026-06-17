@@ -4,6 +4,39 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] — 2026-06-16 (Ride a foundation encoder, don't out-pretrain one)
+
+The architecture-leap roadmap's #5. The research showed the binding constraint on cross-machine
+generalization is DATA DIVERSITY (number of distinct bearings pretrained on), not model capacity — so a
+solo founder cannot out-pretrain a foundation encoder like UniFault (>9B points, 10 datasets,
+MIT-licensed). The honest move is to RIDE it and own the verification + adaptation layer. This adds a
+model-agnostic adapter that wraps ANY frozen encoder into AION's certified pipeline. No breaking changes.
+
+### Added — `aion_nexus.foundation`
+- **`ExternalEncoderAdapter`**: wraps a FROZEN encoder (a torch module or plain callable mapping a
+  vibration window `[B, C, N]` to an embedding `[B, D]`) + a few-shot linear head, with the same forward
+  contract as v1/v3/v6 (`{"logits", "features"}`). It harmonises AION's `[2, 2560]` @ 25.6 kHz input to
+  the encoder's expected length/channels, and keeps the frozen encoder in eval (BatchNorm running stats
+  never drift) even while the head trains. Drops into `InferenceEngine`, `FewShotAdapter` (architecture
+  `"ext"`), the certified serving path, and the physics second opinion — the same adapter wraps UniFault,
+  MOMENT, Mantis, a customer's encoder, or AION's own. *Verify / adapt ANY model, don't compete with it.*
+- **`wrap_foundation_encoder(...)`**: convenience factory (freezes the encoder, sets up harmonisation).
+
+### Verification
+- 11 tests: forward contract, encoder frozen / head trainable, frozen encoder stays eval in train mode
+  (BN running stats unchanged across few-shot adaptation), input harmonisation (resample length, reduce
+  channels, reject channel expansion), few-shot adapts the head only, InferenceEngine integration, and a
+  plain-callable encoder. A synthetic encoder stands in for UniFault (no weights needed). Suite
+  **402 → 413**; ruff clean.
+
+### Honesty (workspace 6.31)
+The adapter adds no pretraining diversity of its own — it rides the encoder's. Riding a foundation
+encoder only fixes the diversity deficit IF that encoder did not see your held-out bearings in
+pretraining; otherwise a "LOBO" number is transductive (exactly v3's flaw). The adapter cannot verify
+that for a black-box encoder, so the honest inductive-LOBO number is the caller's to establish (use
+`evaluate_leave_one_group_out` from v2.13.0). The few-shot head is a linear probe on a frozen encoder:
+the ceiling is the encoder's representation quality, not magic.
+
 ## [2.13.0] — 2026-06-16 (Leakage-free evaluation as a feature: the honest number, attested)
 
 The architecture-leap roadmap's #2. Evaluation leakage is endemic in bearing-fault benchmarking

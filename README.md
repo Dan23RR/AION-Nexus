@@ -278,6 +278,17 @@ protocol + leakage check + intervals into a **signed attestation** verifiable of
 "measured leakage-free" claim made tamper-evident. See
 [`examples/10_leakage_free_eval.py`](./examples/10_leakage_free_eval.py).
 
+**Ride a foundation encoder, don't out-pretrain one (v2.14.0).** The cross-machine wall is a
+data-*diversity* problem, not a capacity one — a solo team can't out-pretrain UniFault (>9B points,
+MIT). `aion_nexus.foundation.ExternalEncoderAdapter` wraps **any frozen encoder** (`[B,C,N]→[B,D]`,
+torch module or callable) + a few-shot head into AION's certified pipeline — the same adapter rides
+UniFault, MOMENT, Mantis, a customer's model, or AION's own (*verify/adapt ANY model, don't compete*).
+It harmonises AION's `[2,2560]`@25.6 kHz input to the encoder and keeps the encoder frozen (BatchNorm
+stable) while the head adapts. Honest scope: it adds no pretraining diversity of its own, and a clean
+inductive LOBO needs the encoder to NOT have seen the held-out bearings — see the leakage-trap note in
+[`docs/FOUNDATION_ENCODERS.md`](./docs/FOUNDATION_ENCODERS.md) and
+[`examples/11_foundation_encoder.py`](./examples/11_foundation_encoder.py).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the

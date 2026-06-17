@@ -35,6 +35,7 @@ _HEAD_PREFIXES: dict[str, tuple[str, ...]] = {
     "v1": ("classifier.",),
     "v6": ("recursive_reasoner.",),
     "v3": ("head.",),
+    "ext": ("head.",),   # ExternalEncoderAdapter: frozen foundation encoder + linear head
 }
 
 
