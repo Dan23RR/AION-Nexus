@@ -4,6 +4,42 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.0] — 2026-06-16 (Source-free test-time adaptation — closing the architecture-leap roadmap 5/5)
+
+The architecture-leap roadmap's #4, and the last of five. A model trained on one machine sees a shifted
+input distribution on a new one; source-free TTA closes part of that gap at install time using ONLY the
+unlabeled windows every running machine produces — no target labels, no source data. Model-agnostic
+(adapts AION's model, a customer's, or a wrapped foundation encoder). No breaking changes.
+
+### Added — `aion_nexus.adapt`
+- **`recalibrate_batchnorm`** (AdaBN, the safe default): re-estimate BatchNorm running mean/var on
+  unlabeled target windows. Label-free, cannot collapse, fixes the most common shift (source BN stats
+  mis-normalising target activations). Returns a deep-copied adapted model.
+- **`tent_adapt`** (TENT, Wang et al. ICLR 2021): minimise prediction entropy on unlabeled target windows
+  by updating ONLY the BN affine params — more powerful, but it can degenerate, so it ships with a
+  **collapse guard** (flags + warns when one class dominates the target predictions, recommending AdaBN)
+  and is never the silent default. Returns `(model, TTAResult)`.
+- **`source_free_adapt`** convenience dispatcher; **`prediction_entropy`** helper.
+
+### Verification
+- 6 tests, incl. the headline: a model at 0.34 accuracy on a covariate-shifted target recovers to ~1.0
+  via AdaBN with NO target labels; TENT reduces entropy without collapse on a balanced target and the
+  guard fires on a degenerate one; a BatchNorm-free model is returned unchanged (no false adaptation).
+  Suite **414 → 420**; ruff clean. Example: `examples/12_test_time_adapt.py`.
+
+### Honesty (workspace 6.31)
+TTA is BatchNorm-based (a model with no BN is returned unchanged with a warning, never a silent no-op);
+it adapts only the shift the stats / entropy capture, not a representation that fundamentally doesn't
+transfer (the ceiling is the model); it assumes the unlabeled target pool is predominantly normal at
+install; and because adaptation changes the model, any conformal coverage must be RE-CERTIFIED after
+adapting — TTA gives plasticity, the certificate gives the guarantee.
+
+### Architecture-leap roadmap — 5 of 5 shipped
+#1 physics second opinion (v2.11) · #3 covariate-shift conformal at deploy (v2.12) · #2 leakage-free
+evaluation (v2.13) · #5 ride a foundation encoder (v2.14) · **#4 source-free TTA (v2.15)**. Each turns a
+structural domain problem into a verifier capability; all solo-founder-achievable, none out-pretrains an
+incumbent. Real field-data benchmarks remain (they need a dataset + GPU).
+
 ## [2.14.0] — 2026-06-16 (Ride a foundation encoder, don't out-pretrain one)
 
 The architecture-leap roadmap's #5. The research showed the binding constraint on cross-machine

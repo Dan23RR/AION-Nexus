@@ -22,6 +22,12 @@ Two architecture versions supported, both verified against published numbers:
 `InferenceEngine.from_checkpoint()` auto-detects the architecture from the
 checkpoint's state_dict keys; no flag required for the common case.
 """
+from aion_nexus.adapt import (
+    TTAResult,
+    recalibrate_batchnorm,
+    source_free_adapt,
+    tent_adapt,
+)
 from aion_nexus.compliance import (
     annex_iv_card,
     annex_iv_dossier,
@@ -88,6 +94,8 @@ __all__ = [
     "preprocess_signal", "validate_signal",
     # Ride a frozen foundation encoder (UniFault/MOMENT/...) + few-shot head
     "ExternalEncoderAdapter", "wrap_foundation_encoder",
+    # Source-free test-time adaptation (adapt ANY model on unlabeled target data)
+    "recalibrate_batchnorm", "tent_adapt", "source_free_adapt", "TTAResult",
     # Degradation-stage (honest coarse positional proxy, NOT calibrated RUL)
     "DegradationEstimate", "estimate_degradation",
     # Physics front-end + model-agnostic second-opinion verifier (RPM-invariant orders)

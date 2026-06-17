@@ -289,6 +289,14 @@ inductive LOBO needs the encoder to NOT have seen the held-out bearings — see 
 [`docs/FOUNDATION_ENCODERS.md`](./docs/FOUNDATION_ENCODERS.md) and
 [`examples/11_foundation_encoder.py`](./examples/11_foundation_encoder.py).
 
+**Source-free test-time adaptation (v2.15.0).** A model trained on one machine drops on a new one;
+`aion_nexus.adapt` adapts ANY model to the new machine at install time using ONLY unlabeled windows —
+no target labels. `recalibrate_batchnorm` (AdaBN, the safe label-free default — in the demo it recovers a
+shifted target from 0.34 to ~1.0 accuracy) and `tent_adapt` (TENT entropy-min, with a collapse guard).
+Honest scope: BatchNorm-based, adapts only the captured shift, and conformal coverage must be re-certified
+after adapting (TTA gives plasticity, the certificate gives the guarantee). See
+[`examples/12_test_time_adapt.py`](./examples/12_test_time_adapt.py).
+
 ### Honest caveats (read before quoting any of this)
 
 These are not fine print — they are the product. A false claim here destroys the
