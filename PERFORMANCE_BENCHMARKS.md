@@ -28,7 +28,11 @@ The v1 F1=0.884 and v6 F1=0.934 headline numbers are **NOT directly comparable**
 
 Cross-evaluation of v6 (trained on Learning_set) on the 11 Test_set bearings drops F1 from 0.934 to **0.302** — a 0.633 collapse caused by domain shift between calibration bearings and run-to-failure bearings.
 
-For industrial deployment on long run-to-failure data, **v1 is the recommended architecture**: F1=0.884 on RTF bearings, while v6 generalizes poorly. v6 may still be appropriate for short-cycle calibration scenarios where its training distribution matches.
+For industrial deployment on long run-to-failure data, **v1 is the recommended architecture** (v6 generalizes poorly cross-regime).
+
+> **Honest accuracy caveat (2026-06).** The F1=0.884 figure is measured on the *stratified / truncated* Test_set regime. On the **complete run-to-failure stream** (`Full_Test_Set`, one window per file to failure) the same v1 checkpoint scores per-window macro-F1 **≈ 0.70** and over-predicts the `advanced` stage in the failure phase. **Do not present 0.884 — nor the 0.922 per-bearing number below — as accuracy on complete real run-to-failure data.** The product value on real data is the **verification layer**, not the raw classifier: under selective certification ~20% of windows are CERTIFIED at accuracy ≈ 0.86 vs 0.70 raw, with the rest routed to human review. Full analysis in [`docs/REAL_DATA_EVALUATION.md`](docs/REAL_DATA_EVALUATION.md).
+
+v6 may still be appropriate for short-cycle calibration scenarios where its training distribution matches.
 
 **Independent verification (2026-04-27, all reproduced delta < 0.001 vs published)**:
 - v1 in-distribution: `verify_checkpoint --checkpoint v1.pth --femto-root .../Test_set/Test_set` → **F1 = 0.8843**
@@ -68,6 +72,8 @@ To address the question "is the F1=0.884 stratified-random number inflated by be
 | **Range** (max − min) | — | **0.1400** (0.8242 → 0.9641) | — |
 
 **Interpretation**: low cross-bearing variance (std 0.043, range 0.14) suggests the v1 checkpoint produces **uniform predictions across the 11 run-to-failure bearings**, NOT concentrated on a subset. This is consistent with the headline F1=0.884 NOT being heavily inflated by bearing-identity leakage from the stratified-random split.
+
+> **Regime caveat (2026-06).** These per-bearing numbers are measured on the **truncated `Test_set/Test_set`** (the PRONOSTIA challenge subset, which stops near/before failure — an *easier* distribution). On the **complete run-to-failure stream** (`Full_Test_Set`) the same checkpoint drops to per-window macro-F1 **≈ 0.70**, over-predicting `advanced` in the failure phase. So 0.922 is evidence against *leakage* inflation, **not** evidence of accuracy on the complete failure trajectory. Do not cite 0.922 as a real-deployment accuracy. See [`docs/REAL_DATA_EVALUATION.md`](docs/REAL_DATA_EVALUATION.md).
 
 **Caveat (full honesty)**: this is NOT a true leave-one-bearing-out (LOBO) measurement. True LOBO would require retraining the model 11 times, holding out one bearing each time, to measure generalization to a completely unseen bearing. This is **scheduled for the next iteration**. The number above is the per-bearing F1 breakdown of the EXISTING checkpoint, which has seen some samples from each bearing during training. It is a cheaper but weaker proxy. The honest cross-bearing generalization signal remains the **MFPT zero-shot F1=0.615** number below — MFPT is a different bearing dataset, never seen during training.
 

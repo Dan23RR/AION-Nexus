@@ -56,6 +56,7 @@ from aion_nexus.foundation import ExternalEncoderAdapter, wrap_foundation_encode
 from aion_nexus.inference import InferenceEngine, PredictionResult
 from aion_nexus.model import AIONNexus, create_aion_nexus
 from aion_nexus.model_v6 import V6_PARAM_COUNT_4CLASS, AIONNexusV6, create_aion_nexus_v6
+from aion_nexus.monitoring import Monitor, population_stability_index
 from aion_nexus.physics import (
     BearingGeometry,
     PhysicsVerdict,
@@ -65,6 +66,21 @@ from aion_nexus.physics import (
 )
 from aion_nexus.preprocessing import preprocess_signal, validate_signal
 from aion_nexus.recursive_reasoner import TinyRecursiveReasoner
+from aion_nexus.rul import (
+    ConformalRUL,
+    RULEstimate,
+    health_features,
+    load_rul,
+    rul_labels_for_run,
+)
+from aion_nexus.serving_calibration import (
+    BASIS_REAL,
+    BASIS_SYNTHETIC,
+    apply_temperature,
+    fit_temperature,
+    load_calibration,
+    save_calibration,
+)
 from aion_nexus.substrate_v3 import (
     V3_ENCODER_PARAM_COUNT,
     AIONNexusV3,
@@ -75,8 +91,14 @@ from aion_nexus.temporal_attention import TemporalSelfAttention
 from aion_nexus.verify import (
     Certificate,
     ConformalCalibrator,
+    ExternalSigner,
+    KeyRing,
+    RiskControlResult,
     Verifier,
+    conformal_risk_control,
+    rcps_threshold,
     verify_certificate,
+    verify_with_keyring,
 )
 from aion_nexus.version import __version__
 
@@ -98,6 +120,8 @@ __all__ = [
     "recalibrate_batchnorm", "tent_adapt", "source_free_adapt", "TTAResult",
     # Degradation-stage (honest coarse positional proxy, NOT calibrated RUL)
     "DegradationEstimate", "estimate_degradation",
+    # Calibrated RUL (time-to-failure) with conformal prediction intervals (CQR)
+    "ConformalRUL", "RULEstimate", "health_features", "rul_labels_for_run", "load_rul",
     # Physics front-end + model-agnostic second-opinion verifier (RPM-invariant orders)
     "BearingGeometry", "PhysicsVerdict", "physics_consistency",
     "fault_order_energy", "order_spectrum",
@@ -106,8 +130,18 @@ __all__ = [
     "verify_evaluation_report", "macro_auroc",
     # Substrate Core: model-agnostic verification & certification layer
     "Verifier", "Certificate", "ConformalCalibrator", "verify_certificate",
+    # Risk control: bound the catastrophic false-healthy rate (CRC / RCPS)
+    "conformal_risk_control", "rcps_threshold", "RiskControlResult",
+    # Key custody: KMS/HSM-backed signing (key never in-process) + rotation/revocation
+    "ExternalSigner", "KeyRing", "verify_with_keyring",
+    # Continuous monitoring: rolling SLO + PSI drift over the certificate stream
+    "Monitor", "population_stability_index",
     "compliance_evidence", "evidence_card",
     "annex_iv_dossier", "annex_iv_card",
+    # Real conformal-calibration artifacts for certified serving (crack-#1 fix)
+    "save_calibration", "load_calibration", "BASIS_REAL", "BASIS_SYNTHETIC",
+    # Temperature scaling (Guo et al. 2017) — calibrate over-confident probabilities
+    "fit_temperature", "apply_temperature",
     # Constants
     "CLASS_NAMES", "CLASS_DESCRIPTIONS", "NUM_CLASSES",
     "SIGNAL_LENGTH", "NUM_CHANNELS", "SAMPLING_RATE_HZ", "MODEL_PARAM_COUNT",

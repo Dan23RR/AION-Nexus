@@ -120,6 +120,7 @@ class Verifier:
                 model_id: str | None = None,
                 key: str | bytes | None = None,
                 seed: str | bytes | None = None,
+                signer=None,
                 scheme: str = "auto",
                 ttl_seconds: int | None = None,
                 key_id: str | None = None,
@@ -207,6 +208,12 @@ class Verifier:
         # resolves by precedence (Ed25519 seed env > HMAC key env > NONE). The
         # validity-window / identity fields (ttl_seconds, key_id, now_iso) are
         # additive: passing None leaves the cert timeless (backward-compatible).
+        # A pluggable Signer (e.g. a KMS/HSM-backed ExternalSigner) takes precedence:
+        # the private key never enters this process. Otherwise fall back to the
+        # in-process seed/HMAC path (dev / single-tenant).
+        if signer is not None:
+            return cert.seal_with(signer, ttl_seconds=ttl_seconds,
+                                  key_id=key_id, now_iso=now_iso)
         if seed is not None:
             return cert.seal(seed, scheme="ed25519", ttl_seconds=ttl_seconds,
                              key_id=key_id, now_iso=now_iso)

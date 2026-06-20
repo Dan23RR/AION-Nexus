@@ -386,3 +386,46 @@ class HmacSigner:
 
     def sign(self, message: str) -> str:
         return hmac_sign(message, self._key)
+
+
+class ExternalSigner:
+    """A :class:`Signer` whose private key lives OUTSIDE this process (KMS / HSM).
+
+    The custody fix: the application holds ONLY the PUBLIC key and a ``sign``
+    callback that forwards the message to an external device (AWS KMS, Cloud HSM,
+    Azure Key Vault via PKCS#11, ...). The private key NEVER enters the AION
+    process, so a regulated deployment can mint signed certificates without
+    in-process key material, with rotation/revocation managed by the device::
+
+        signer = ExternalSigner(pubkey_hex, lambda msg: kms.sign(KEY_ID, msg))
+        cert.seal_with(signer, key_id="kms-2026-q3", ttl_seconds=86400)
+
+    The callback MUST return a hex Ed25519 signature over the EXACT message string,
+    verifiable by ``ed25519_verify(msg, sig, pubkey_hex)``. Scheme defaults to
+    Ed25519 (third-party-verifiable). The interface is "sign a message", never
+    "give me the key" — which is the whole point.
+    """
+
+    def __init__(self, public_key: str | None, sign_callback, *,
+                 scheme: str = "Ed25519") -> None:
+        if not callable(sign_callback):
+            raise TypeError("sign_callback must be callable (message -> hex signature)")
+        if scheme == "Ed25519" and not public_key:
+            raise ValueError("an Ed25519 ExternalSigner needs its public key (to embed/verify)")
+        self._pub = str(public_key) if public_key is not None else None
+        self._cb = sign_callback
+        self._scheme = str(scheme)
+
+    @property
+    def scheme(self) -> str:
+        return self._scheme
+
+    @property
+    def public_material(self) -> str | None:
+        return self._pub
+
+    def sign(self, message: str) -> str:
+        sig = self._cb(str(message))
+        if not isinstance(sig, str):
+            raise TypeError("external sign callback must return a hex signature string")
+        return sig

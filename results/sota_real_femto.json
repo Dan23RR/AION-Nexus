@@ -1,0 +1,47 @@
+{
+  "dataset": "FEMTO Full_Test_Set (real)",
+  "n_windows": 1320,
+  "baseline_macro_f1": 0.7117,
+  "logit_adjust": {
+    "tau": 1.4,
+    "macro_f1": 0.7283,
+    "lift": 0.0166
+  },
+  "temperature": {
+    "T": 2.5,
+    "ece_before": 0.2174,
+    "ece_after": 0.0318
+  },
+  "adabn_macro_f1": 0.7403,
+  "selective": {
+    "aurc_baseline": 0.203,
+    "aurc_improved": 0.175,
+    "acc@10pct": {
+      "baseline": 0.924,
+      "improved": 0.97
+    },
+    "acc@20pct": {
+      "baseline": 0.864,
+      "improved": 0.917
+    },
+    "acc@50pct": {
+      "baseline": 0.779,
+      "improved": 0.794
+    }
+  },
+  "conformal_per_class_coverage": {
+    "marginal": {
+      "normal": 0.958,
+      "early": 0.939,
+      "medium": 0.892,
+      "advanced": 1.0
+    },
+    "class_conditional": {
+      "normal": 0.951,
+      "early": 0.908,
+      "medium": 0.938,
+      "advanced": 0.928
+    }
+  },
+  "honesty_note": "Post-hoc params fit on calibration, reported on a disjoint test split. Positional labels are a noisy proxy; AdaBN is near-zero because v1 is in-distribution on these bearings. The frontier value is the selective-prediction curve: a customer reads accuracy@coverage and picks the gate."
+}

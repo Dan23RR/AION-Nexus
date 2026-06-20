@@ -66,7 +66,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import numpy as np
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
@@ -79,13 +79,17 @@ from aion_nexus.preprocessing import SignalValidationError
 from aion_nexus.utils import aggregate_window_predictions, segment_signal
 from aion_nexus.version import __version__
 from server.schemas import (
+    AnnexIVRequest,
     BatchPredictResponse,
+    BearingGeometrySchema,
     ErrorResponse,
+    EvidenceRequest,
     HealthResponse,
     LongSignalRequest,
     PredictCertifiedResponse,
     PredictDegradationResponse,
     PredictResponse,
+    PredictRULResponse,
     VerifyRequest,
     VerifyResponse,
 )
@@ -119,6 +123,24 @@ CERT_TTL_ENV = "AION_CERT_TTL_SECONDS"
 DEFAULT_CERT_TTL_SECONDS = 86_400  # 24h validity window for a served certificate
 CERT_KEY_ID_ENV = "AION_CERT_KEY_ID"
 REQUIRE_SIGNED_CERT_ENV = "AION_REQUIRE_SIGNED_CERT"  # "1" -> strict: refuse unsigned
+# Real conformal-calibration artifact (v2.16.0). When this points at a calibration
+# .npz built from a held-out, group-disjoint REAL split (scripts/build_calibration),
+# the served verifier calibrates on real data and the certificate's coverage_basis
+# becomes "real-holdout". Absent -> the runnable synthetic placeholder, surfaced
+# honestly on every response. Default resolves next to the loaded checkpoint.
+CALIBRATION_NPZ_ENV = "AION_CALIBRATION_NPZ"
+DEFAULT_CALIBRATION_NPZ = "checkpoints/calibration_v1.npz"
+REQUIRE_REAL_CALIBRATION_ENV = "AION_REQUIRE_REAL_CALIBRATION"  # "1" -> 503 if placeholder
+# Conformal Risk Control (v2.18.0): bound the expected false-healthy rate (failing
+# to flag a degraded bearing) at this level. Set AION_RISK_ALPHA="off" to disable.
+RISK_ALPHA_ENV = "AION_RISK_ALPHA"
+DEFAULT_RISK_ALPHA = 0.05
+# Calibrated RUL model (v2.19.0): a fitted ConformalRUL artifact (joblib, produced
+# by the deployer from run-to-failure data). Loaded ONLY from this trusted path.
+RUL_ARTIFACT_ENV = "AION_RUL_ARTIFACT"
+# Key registry (v2.20.0): a publishable KeyRing JSON (no secrets) enabling rotation
+# + revocation enforcement at /verify — a revoked key_id makes its certs untrusted.
+KEYRING_ARTIFACT_ENV = "AION_KEYRING"
 
 # ---- Checkpoint pin config (v2.6.0) -----------------------------------------
 CHECKPOINT_SHA256_ENV = "AION_CHECKPOINT_SHA256"           # expected file hash
@@ -308,21 +330,39 @@ def _load_engine(app: FastAPI) -> None:
         app.state.startup_error = str(exc)
 
 
+def _calibration_artifact_path() -> Path:
+    """Resolve the calibration-artifact path (env override, else next to the package)."""
+    raw = os.environ.get(CALIBRATION_NPZ_ENV)
+    if raw and raw.strip():
+        return Path(raw).expanduser()
+    # Default resolves relative to the package root (parent of this server/ dir).
+    return Path(__file__).resolve().parent.parent / DEFAULT_CALIBRATION_NPZ
+
+
 def _build_certifier(app: FastAPI) -> None:
     """Build the calibrated Verifier + certificate store for /predict_certified.
 
-    The Verifier is calibrated on a SMALL synthetic in-distribution set derived
-    from the loaded engine, purely so the conformal API is runnable in the server.
+    Calibration basis (v2.16.0 — crack-#1 fix). The Verifier is calibrated on a
+    REAL held-out artifact when one is present (``AION_CALIBRATION_NPZ`` or
+    ``checkpoints/calibration_v1.npz``, built by ``scripts/build_calibration`` from
+    a leakage-checked split), in which case ``app.state.coverage_basis =
+    "real-holdout"``. Absent, it falls back to a SMALL synthetic placeholder so the
+    conformal API stays runnable, and ``coverage_basis = "synthetic-placeholder"``.
 
-    HONESTY (workspace 6.31): this synthetic calibration is NOT a valid
-    calibration for any real deployment — conformal coverage holds only under
-    exchangeability with the SERVING data, and random windows are not exchangeable
-    with real bearings. A real deployment calibrates on a held-out, in-distribution
-    (ideally per-bearing) split. The certificate's verdict logic, signature and
-    audit trail are real; the *coverage number* from this calibrator is a
-    placeholder. We never claim otherwise.
+    HONESTY (workspace 6.31): a synthetic calibration is NOT valid for any real
+    deployment — conformal coverage holds only under exchangeability with the
+    SERVING data, and random windows are not exchangeable with real bearings. The
+    basis is stamped (tamper-evidently) into every certificate's
+    ``coverage_guarantee`` and surfaced on every response, so the placeholder is
+    never silently passed off as a real coverage number. The certificate's verdict
+    logic, signature and audit trail are real regardless of basis.
     """
     engine = getattr(app.state, "engine", None)
+    app.state.coverage_basis = None
+    app.state.calibration_meta = None
+    app.state.coverage_temperature = 1.0
+    app.state.risk_control = None
+    app.state.monitor = None
     if engine is None:
         app.state.verifier = None
         app.state.cert_store = None
@@ -331,32 +371,130 @@ def _build_certifier(app: FastAPI) -> None:
         import numpy as _np
 
         from aion_nexus.config import CLASS_NAMES
+        from aion_nexus.serving_calibration import (
+            BASIS_SYNTHETIC,
+            apply_temperature,
+            fit_temperature,
+            load_calibration,
+            synthetic_demo_probs,
+        )
         from aion_nexus.verify import CertificateStore, Verifier
 
-        rng = _np.random.default_rng(123)
-        probs_list: list = []
-        labels_list: list[int] = []
-        for cls in range(len(CLASS_NAMES)):
-            for _ in range(8):
-                sig = rng.standard_normal((2, 2560)).astype("float32") * 0.5
-                res = engine.predict(sig)
-                p = _np.array([res.probabilities[name] for name in CLASS_NAMES],
-                              dtype=_np.float64)
-                probs_list.append(p)
-                labels_list.append(cls)
-        verifier = Verifier(alpha=0.1, class_names=list(CLASS_NAMES))
-        verifier.calibrate(_np.vstack(probs_list), _np.array(labels_list, dtype=int))
+        class_names = list(CLASS_NAMES)
+        basis = BASIS_SYNTHETIC
+        meta: dict | None = None
+        probs = labels = None
+
+        artifact = _calibration_artifact_path()
+        if artifact.exists():
+            try:
+                loaded = load_calibration(artifact)
+                a_names = loaded["class_names"] or class_names
+                if list(a_names) != class_names:
+                    raise ValueError(
+                        f"calibration artifact class_names {a_names} != server "
+                        f"class_names {class_names}")
+                probs, labels = loaded["probs"], loaded["labels"]
+                basis, meta = loaded["basis"], loaded["meta"]
+                _logger.info("Loaded REAL calibration artifact (%s, n=%d, basis=%s)",
+                             artifact, len(labels), basis)
+            except Exception:
+                # A broken artifact must not take down certified serving — fall back
+                # to the placeholder, loudly.
+                _logger.exception("Calibration artifact unusable; using placeholder")
+                probs = labels = None
+
+        if probs is None:
+            probs, labels = synthetic_demo_probs(
+                lambda sig: _np.array(
+                    [engine.predict(sig).probabilities[n] for n in class_names],
+                    dtype=_np.float64),
+                len(class_names))
+            basis = BASIS_SYNTHETIC
+
+        # Temperature scaling (Guo et al. 2017): the v1 model is over-confident on
+        # real data (ECE ~0.22 -> ~0.06 after scaling). Fit T on the calibration set
+        # and re-temper BOTH calibration and serving probabilities consistently, so
+        # the conformal score transform is identical on both sides and the coverage
+        # guarantee is preserved while the sets become honestly calibrated.
+        probs_arr = _np.asarray(probs, dtype=float)
+        labels_arr = _np.asarray(labels, dtype=int)
+        temperature = fit_temperature(probs_arr, labels_arr)
+        verifier = Verifier(alpha=0.1, class_names=class_names)
+        tempered = apply_temperature(probs_arr, temperature)
+        verifier.calibrate(tempered, labels_arr)
         app.state.verifier = verifier
+        app.state.coverage_basis = basis
+        app.state.calibration_meta = meta
+        app.state.coverage_temperature = temperature
+
+        # Continuous monitor seeded with the calibration confidence distribution, so
+        # PSI drift is measured against what the verifier was calibrated on.
+        try:
+            from aion_nexus.monitoring import Monitor
+            app.state.monitor = Monitor(reference_confidence=tempered.max(axis=1))
+        except Exception:
+            app.state.monitor = None
+
+        # Conformal Risk Control: bound the expected false-healthy rate on the SAME
+        # (temperature-scaled) calibration the conformal layer uses. Opt-out with
+        # AION_RISK_ALPHA="off". The guarantee inherits the calibration basis caveat.
+        app.state.risk_control = None
+        raw_alpha = os.environ.get(RISK_ALPHA_ENV, "")
+        if raw_alpha.strip().lower() not in ("off", "0", "none", "false"):
+            try:
+                from aion_nexus.verify import conformal_risk_control
+                ra = float(raw_alpha) if raw_alpha.strip() else DEFAULT_RISK_ALPHA
+                app.state.risk_control = conformal_risk_control(
+                    tempered, labels_arr, alpha=ra)
+            except Exception:
+                _logger.exception("Risk control calibration failed; disabling it")
+                app.state.risk_control = None
         # The store path resolves from VERIFY_CERT_STORE (env) by default; the
         # chain link scheme (Ed25519 / HMAC / NONE) is resolved at append time by
         # the same env precedence the certificate uses.
         app.state.cert_store = CertificateStore()
-        _logger.info("Certified-serving verifier calibrated (synthetic placeholder).")
+        _logger.info("Certified-serving verifier calibrated (basis=%s).", basis)
     except Exception:
         # Never let an optional cert facility block the core prediction service.
         _logger.exception("Failed to build certified-serving verifier")
         app.state.verifier = None
         app.state.cert_store = None
+        app.state.coverage_basis = None
+
+
+def _load_rul_model(app: FastAPI) -> None:
+    """Load a fitted ConformalRUL artifact (joblib) from AION_RUL_ARTIFACT, if set.
+
+    Loaded ONLY from the operator-configured trusted path (joblib uses pickle). A
+    missing/broken artifact disables /predict_rul (503), never crashes startup.
+    """
+    app.state.rul_model = None
+    path = os.environ.get(RUL_ARTIFACT_ENV)
+    if not path or not path.strip():
+        return
+    try:
+        from aion_nexus.rul import load_rul
+        app.state.rul_model = load_rul(path.strip())
+        _logger.info("Loaded calibrated RUL model from %s", path)
+    except Exception:
+        _logger.exception("Failed to load RUL artifact; /predict_rul disabled")
+        app.state.rul_model = None
+
+
+def _load_keyring(app: FastAPI) -> None:
+    """Load a publishable KeyRing (rotation + revocation) from AION_KEYRING, if set."""
+    app.state.keyring = None
+    path = os.environ.get(KEYRING_ARTIFACT_ENV)
+    if not path or not path.strip():
+        return
+    try:
+        from aion_nexus.verify import KeyRing
+        app.state.keyring = KeyRing.load(path.strip())
+        _logger.info("Loaded key registry from %s", path)
+    except Exception:
+        _logger.exception("Failed to load key registry; revocation enforcement off")
+        app.state.keyring = None
 
 
 @asynccontextmanager
@@ -364,6 +502,8 @@ async def _lifespan(app: FastAPI):
     """Startup/shutdown handler (replaces the deprecated @app.on_event)."""
     _load_engine(app)
     _build_certifier(app)
+    _load_rul_model(app)
+    _load_keyring(app)
     yield
 
 
@@ -511,6 +651,26 @@ class JsonSignalRequest(BaseModel):
     )
 
 
+class CertifiedSignalRequest(JsonSignalRequest):
+    """``/predict_certified`` body: a signal plus an OPTIONAL physics second opinion.
+
+    When ``rpm`` and ``bearing`` are supplied, the server runs the model-agnostic
+    physics verifier (envelope/order analysis) on the SAME window and composes its
+    verdict (weakest-link) with the conformal certificate. ``claimed_fault`` (one
+    of ``outer`` / ``inner`` / ``ball`` / ``cage``) is the fault family domain
+    knowledge expects for this machine; with it, physics can CONTRADICT a confident
+    model whose energy sits at a different family. Omit all three to get the plain
+    certified prediction (fully backward-compatible with the old body).
+    """
+
+    rpm: float | None = Field(
+        None, gt=0.0, description="Shaft speed (rpm) for the physics second opinion")
+    bearing: BearingGeometrySchema | None = Field(
+        None, description="Bearing geometry for the physics second opinion")
+    claimed_fault: Literal["outer", "inner", "ball", "cage"] | None = Field(
+        None, description="Expected fault family (enables CONTRADICT detection)")
+
+
 def _read_upload_capped(upload: UploadFile) -> bytes:
     """Read an upload enforcing AION_MAX_BODY_BYTES even for chunked requests.
 
@@ -590,6 +750,75 @@ def _require_verifier():
     return verifier
 
 
+def _coverage_basis() -> str:
+    """How the served verifier was calibrated: 'real-holdout' or 'synthetic-placeholder'."""
+    from aion_nexus.serving_calibration import BASIS_SYNTHETIC
+    return getattr(app.state, "coverage_basis", None) or BASIS_SYNTHETIC
+
+
+def _coverage_temperature() -> float:
+    """The temperature-scaling factor the served verifier was calibrated with (1.0 = none)."""
+    t = getattr(app.state, "coverage_temperature", None)
+    return float(t) if t else 1.0
+
+
+def _compose_physics(signal, rpm, bearing, claimed_fault, cert):
+    """Run the model-agnostic physics second opinion and compose it with the cert.
+
+    Returns ``(physics_dict_or_None, composed_dict_or_None)``.
+
+    The physics check runs only when ``rpm`` and ``bearing`` are supplied. It is
+    composed into the system verdict (weakest-link AND) ONLY when it returns a
+    DEFINITE opinion (CONFIRM / CONTRADICT): a WEAK / INDETERMINATE physics result
+    carries no information and must NOT drag a CERTIFIED conformal verdict down to
+    ABSTAIN — it is reported for transparency but left out of the composition. A
+    CONTRADICT drops the system below CERTIFIED (a confident-but-wrong model
+    caught); a CONFIRM corroborates without raising (AND can only lower).
+    """
+    if rpm is None or bearing is None:
+        return None, None
+    try:
+        from aion_nexus.config import SAMPLING_RATE_HZ
+        from aion_nexus.physics import (
+            PHYS_CONFIRM,
+            PHYS_CONTRADICT,
+            BearingGeometry,
+            physics_consistency,
+        )
+        from aion_nexus.verify import compose_certificates
+
+        geometry = BearingGeometry(
+            n_rolling_elements=bearing.n_rolling_elements,
+            ball_diameter=bearing.ball_diameter,
+            pitch_diameter=bearing.pitch_diameter,
+            contact_angle_deg=bearing.contact_angle_deg,
+        )
+        verdict = physics_consistency(
+            np.asarray(signal, dtype=np.float64),
+            fs=SAMPLING_RATE_HZ,
+            rpm=float(rpm),
+            geometry=geometry,
+            claimed_fault=claimed_fault,
+        )
+        physics_dict = {
+            "verdict": verdict.verdict,
+            "dominant_fault": verdict.dominant_fault,
+            "claimed_fault": verdict.claimed_fault,
+            "scores": {k: float(v) for k, v in verdict.scores.items()},
+            "assurance": verdict.assurance,
+            "detail": verdict.detail,
+        }
+        composed = None
+        if verdict.verdict in (PHYS_CONFIRM, PHYS_CONTRADICT):
+            composed = compose_certificates([cert, verdict.as_component()], op="and")
+        return physics_dict, composed
+    except (ValueError, KeyError) as exc:
+        # A malformed geometry / unsupported claim must not 500 a prediction the
+        # caller already paid for — report the failure, skip composition.
+        _logger.warning("Physics second opinion skipped: %s", exc)
+        return {"verdict": "INDETERMINATE", "detail": f"physics unavailable: {exc}"}, None
+
+
 def _cert_ttl_seconds() -> int:
     """Resolve the certificate validity window (seconds) from AION_CERT_TTL_SECONDS."""
     raw = os.environ.get(CERT_TTL_ENV)
@@ -635,7 +864,7 @@ def _weak_ed25519_seed_error() -> str | None:
     responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
     dependencies=[Depends(_require_api_key)],
 )
-def predict_certified(body: JsonSignalRequest) -> PredictCertifiedResponse:
+def predict_certified(body: CertifiedSignalRequest) -> PredictCertifiedResponse:
     """Predict AND emit a SIGNED, auditable :class:`Certificate` for the decision.
 
     Reuses the exact ``/predict`` pipeline (preprocess + OOD/plausibility gate +
@@ -679,6 +908,20 @@ def predict_certified(body: JsonSignalRequest) -> PredictCertifiedResponse:
                     "python -c \"from aion_nexus.verify import generate_seed; print(generate_seed())\""),
         )
 
+    # Optional strict gate: refuse to emit a placeholder-coverage certificate. A
+    # deployer who has wired a real calibration artifact can set this to guarantee
+    # no cert ever ships a synthetic coverage number (the honesty gate, hard mode).
+    from aion_nexus.serving_calibration import BASIS_SYNTHETIC
+    if (os.environ.get(REQUIRE_REAL_CALIBRATION_ENV, "") == "1"
+            and _coverage_basis() == BASIS_SYNTHETIC):
+        raise HTTPException(
+            status_code=503,
+            detail=(f"{REQUIRE_REAL_CALIBRATION_ENV}=1 but the served verifier is "
+                    "calibrated on the synthetic placeholder. Provide a real "
+                    f"calibration artifact via {CALIBRATION_NPZ_ENV} (build it with "
+                    "scripts/build_calibration) before emitting certificates."),
+        )
+
     engine = _require_engine()
     verifier = _require_verifier()
     try:
@@ -700,12 +943,31 @@ def predict_certified(body: JsonSignalRequest) -> PredictCertifiedResponse:
     probs = np.array([result.probabilities[name] for name in CLASS_NAMES],
                      dtype=np.float64)
     key_id = os.environ.get(CERT_KEY_ID_ENV) or None
+    # Bind the calibration basis (real-holdout vs synthetic-placeholder) and the
+    # temperature factor into the certificate's coverage_guarantee, which IS hashed
+    # into content_hash — so the synthetic-vs-real distinction is TAMPER-EVIDENT,
+    # not just a docstring caveat. Temperature-scale the serving probabilities with
+    # the SAME factor the conformal calibrator was fit under (consistent score
+    # transform -> coverage preserved, sets honestly calibrated).
+    from aion_nexus.serving_calibration import (
+        apply_temperature,
+        coverage_guarantee_string,
+    )
+    basis = _coverage_basis()
+    temperature = _coverage_temperature()
+    cov_meta = getattr(app.state, "calibration_meta", None) or {}
+    cov_guarantee = coverage_guarantee_string(
+        basis, float(verifier.calibrator.alpha),
+        leakage_checked=bool(cov_meta.get("leakage_checked")),
+        temperature=temperature)
     cert = verifier.certify(
-        probs,
+        apply_temperature(probs, temperature),
         input_signal=signal,
         model_id=f"aion-nexus-{__version__}",
         ttl_seconds=_cert_ttl_seconds(),
         key_id=key_id,
+        conformal_method="marginal-split-conformal",
+        coverage_guarantee=cov_guarantee,
     )
 
     # Append to the hash-chained audit store (best-effort: a store failure must not
@@ -717,13 +979,54 @@ def predict_certified(body: JsonSignalRequest) -> PredictCertifiedResponse:
         except Exception:
             _logger.exception("Failed to append certificate to the store")
 
-    warning = None
+    # Optional model-agnostic physics second opinion, composed weakest-link with
+    # the conformal cert (a CONTRADICT drops the system below CERTIFIED).
+    physics_dict, composed = _compose_physics(
+        signal, body.rpm, body.bearing, body.claimed_fault, cert)
+
+    # Conformal Risk Control: the risk-controlled prediction set whose expected
+    # false-healthy rate is bounded (the safety-critical guarantee for PdM).
+    rc_dict = None
+    rc = getattr(app.state, "risk_control", None)
+    if rc is not None:
+        from aion_nexus.verify import DEGRADED_CLASSES
+        rc_set = rc.prediction_set(apply_temperature(probs, temperature))
+        rc_dict = {
+            "method": rc.method,
+            "alpha": rc.alpha,
+            "lambda_hat": rc.lambda_hat,
+            "guarantee": rc.guarantee,
+            "set": rc_set,
+            "set_names": [CLASS_NAMES[i] for i in rc_set],
+            "flags_degraded": any(i in DEGRADED_CLASSES for i in rc_set),
+            "calibrated_risk": rc.calibrated_risk,
+            "coverage_basis": basis,
+        }
+
+    warnings: list[str] = []
     from aion_nexus.verify import AUTH_NONE
     if cert.authentication == AUTH_NONE:
-        warning = ("certificate is UNSIGNED (authentication=NONE): integrity hash "
-                   "only, NOT tamper-evident against an adversary holding the "
-                   f"source. Set {ED25519_SEED_ENV} (Ed25519, third-party "
-                   f"verifiable) or {HMAC_KEY_ENV} (HMAC) to sign it.")
+        warnings.append(
+            "certificate is UNSIGNED (authentication=NONE): integrity hash only, "
+            "NOT tamper-evident against an adversary holding the source. Set "
+            f"{ED25519_SEED_ENV} (Ed25519, third-party verifiable) or {HMAC_KEY_ENV} "
+            "(HMAC) to sign it.")
+    if basis == BASIS_SYNTHETIC:
+        warnings.append(
+            "coverage_basis=synthetic-placeholder: the conformal coverage number is "
+            "a PLACEHOLDER (verifier calibrated on synthetic windows, not real "
+            "bearings). Build a real, leakage-checked calibration artifact "
+            f"(scripts/build_calibration -> {CALIBRATION_NPZ_ENV}) to make coverage "
+            "meaningful. Verdict logic, signature and audit trail are real regardless.")
+    warning = " | ".join(warnings) if warnings else None
+
+    # Feed the continuous monitor (rolling SLO + drift over the certificate stream).
+    mon = getattr(app.state, "monitor", None)
+    if mon is not None:
+        try:
+            mon.record(float(result.confidence), cert.verdict)
+        except Exception:
+            _logger.exception("Monitor record failed (non-fatal)")
 
     METRICS.observe_prediction(result.predicted_class_name, result.latency_ms)
     return PredictCertifiedResponse(
@@ -732,7 +1035,26 @@ def predict_certified(body: JsonSignalRequest) -> PredictCertifiedResponse:
         pubkey=cert.pubkey,
         verdict=cert.verdict,
         warning=warning,
+        coverage_basis=basis,
+        physics=physics_dict,
+        composed=composed,
+        risk_control=rc_dict,
     )
+
+
+@app.get("/monitor", dependencies=[Depends(_require_api_key)])
+def monitor() -> dict:
+    """Rolling SLO + drift over the recent certificate stream (continuous monitoring).
+
+    Returns certified/review/abstain rates, mean confidence (a label-free accuracy
+    proxy under calibration), the Population Stability Index of the confidence
+    distribution vs the calibration reference, a drift level, and any alerts. The
+    point-in-time certificate becomes a continuously-watchable SLO.
+    """
+    mon = getattr(app.state, "monitor", None)
+    if mon is None:
+        return {"n": 0, "alerts": ["monitor unavailable (certified serving not calibrated)"]}
+    return mon.status()
 
 
 @app.post(
@@ -755,12 +1077,21 @@ def verify(body: VerifyRequest) -> VerifyResponse:
     what the caller / env supplies, so an auditor can call it directly.
     """
     from aion_nexus.verify import verify_certificate
+    keyring = getattr(app.state, "keyring", None)
+    cert_key_id = body.certificate.get("key_id") if isinstance(body.certificate, dict) else None
     try:
-        res = verify_certificate(
-            body.certificate,
-            expected_pubkey=body.expected_pubkey,
-            now_iso=body.now_iso,
-        )
+        if keyring is not None and cert_key_id:
+            # Enforce rotation + revocation: resolve the key_id against the registry
+            # (a revoked key -> trusted=False, REVOKED-KEY), ignoring a caller-supplied
+            # expected_pubkey in favour of the registered one.
+            from aion_nexus.verify import verify_with_keyring
+            res = verify_with_keyring(body.certificate, keyring, now_iso=body.now_iso)
+        else:
+            res = verify_certificate(
+                body.certificate,
+                expected_pubkey=body.expected_pubkey,
+                now_iso=body.now_iso,
+            )
     except (KeyError, ValueError, TypeError) as exc:
         raise HTTPException(
             400, f"Malformed certificate (cannot verify): {exc}") from exc
@@ -771,7 +1102,92 @@ def verify(body: VerifyRequest) -> VerifyResponse:
         detail=res["detail"],
         expired=res.get("expired"),
         not_yet_valid=res.get("not_yet_valid"),
+        key_status=res.get("key_status"),
+        key_note=res.get("key_note") or None,
     )
+
+
+@app.post(
+    "/evidence",
+    responses={400: {"model": ErrorResponse}},
+    dependencies=[Depends(_require_api_key)],
+)
+def evidence(body: EvidenceRequest) -> dict:
+    """Map a certificate onto an EU AI Act / ISO evidence map (served, v2.16.0).
+
+    Turns a signed :class:`Certificate` into the structured evidence dict
+    (:func:`aion_nexus.compliance.compliance_evidence`): EU AI Act Art. 12/14/15 +
+    ISO 13381-1 + ISO/IEC 42001, each item carrying an explicit limitation. Pure
+    standards-mapping — needs no engine and no secret. HONESTY (6.31): this is
+    evidence scaffolding, NOT a conformity assessment; the module is contractually
+    barred from emitting 'compliant'/'conforme'.
+    """
+    from aion_nexus.compliance import compliance_evidence
+    try:
+        return compliance_evidence(body.certificate)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(400, f"Cannot map certificate to evidence: {exc}") from exc
+
+
+@app.post(
+    "/annex_iv",
+    responses={400: {"model": ErrorResponse}},
+    dependencies=[Depends(_require_api_key)],
+)
+def annex_iv(body: AnnexIVRequest) -> dict:
+    """Generate the EU AI Act Annex IV (Article 11) documentation skeleton (served).
+
+    Returns the 9-section dossier (:func:`aion_nexus.compliance.annex_iv_dossier`),
+    filling sections only from caller-supplied ``model_metadata`` and marking the
+    rest provider-owned. With ``markdown=true`` a rendered card is included.
+    HONESTY (6.31): readiness is NOT conformity; the dossier never claims the
+    system is compliant.
+    """
+    from aion_nexus.compliance import annex_iv_card, annex_iv_dossier
+    try:
+        dossier = annex_iv_dossier(body.model_metadata, certificate=body.certificate)
+        out: dict = {"dossier": dossier}
+        if body.markdown:
+            out["card_markdown"] = annex_iv_card(
+                body.model_metadata, certificate=body.certificate)
+        return out
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(400, f"Cannot build Annex IV dossier: {exc}") from exc
+
+
+@app.post(
+    "/predict_rul",
+    response_model=PredictRULResponse,
+    responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    dependencies=[Depends(_require_api_key)],
+)
+def predict_rul(body: JsonSignalRequest) -> PredictRULResponse:
+    """Calibrated Remaining Useful Life with a conformal interval (v2.19.0).
+
+    Requires a fitted ConformalRUL artifact configured via ``AION_RUL_ARTIFACT``
+    (the deployer builds it from their run-to-failure data). Returns a median
+    time-to-failure plus a ``1 - alpha`` conformal interval whose coverage holds
+    under exchangeability of the deployer's calibration asset and the serving
+    asset — the ``coverage_caveat`` states the cross-bearing/cross-machine limit.
+    HONESTY: this is a TIME-TO-FAILURE (unlike /predict_degradation's coarse stage).
+    """
+    model = getattr(app.state, "rul_model", None)
+    if model is None:
+        raise HTTPException(
+            status_code=503,
+            detail=("calibrated RUL unavailable: set AION_RUL_ARTIFACT to a fitted "
+                    "ConformalRUL artifact built from run-to-failure data "
+                    "(see examples/14_calibrated_rul.py)."))
+    try:
+        signal = np.asarray(body.signal, dtype=np.float32)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f"Malformed signal: {exc}") from exc
+    try:
+        from aion_nexus.rul import health_features
+        est = model.predict_one(health_features(signal))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f"Cannot estimate RUL: {exc}") from exc
+    return PredictRULResponse(**est.as_dict())
 
 
 @app.post(

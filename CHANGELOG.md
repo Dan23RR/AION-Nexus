@@ -4,6 +4,187 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.0] — 2026-06-19 (Continuous monitoring — point-in-time certs become a rolling SLO + drift)
+
+The market gap analysis named the existential architectural mismatch: the AI-assurance category watches
+models CONTINUOUSLY (drift, MTTD/MTTR), while AION certified a single inference. AION had the shift math but
+shipped none of it as a monitoring product. This closes it. No breaking changes.
+
+### Added — `aion_nexus.monitoring`
+- **`Monitor`** — a rolling window over the decision/certificate stream: live SLO (certified / review /
+  abstain rates, mean confidence), **Population Stability Index drift** of the confidence distribution vs the
+  calibration reference (`none` / `moderate` / `significant`), a **label-free** accuracy proxy (mean
+  confidence under calibration), and alerts. `realized_metrics` reports the actual accuracy + false-healthy
+  rate once delayed labels arrive. **`population_stability_index`** is the standalone PSI.
+- HONESTY (6.31): label-free signals assume a calibrated model (pair with temperature scaling); PSI flags a
+  change, not a quantified accuracy drop — the right posture for the canonical delayed/absent-label problem.
+
+### Added — served continuous monitoring
+- `/predict_certified` feeds a per-instance `Monitor` (seeded with the calibration confidence distribution);
+  **`GET /monitor`** returns the rolling SLO + drift + alerts — the point-in-time certificate becomes a
+  continuously-watchable SLO. Demo: `examples/16_continuous_monitoring.py`.
+
+### Tests
+- +8 (`tests/test_monitoring.py` ×7 + 1 served). Suite 466 → 474, all passing.
+
+## [2.20.0] — 2026-06-19 (Key custody — KMS/HSM signing + rotation + revocation; the crack at the root of the thesis)
+
+The market gap analysis flagged the differentiator's foundational hole: offline-verifiable certificates are
+the whole thesis, but the Ed25519 seed lived in process memory with no rotation or revocation — and no
+regulated security team accepts in-process key material. This release closes it. No breaking changes.
+
+### Added — external (KMS/HSM) signing
+- **`ExternalSigner`** (`aion_nexus.verify.signing`): a `Signer` that holds ONLY the public key + a sign
+  callback forwarding to an external device (AWS KMS / Cloud HSM / Azure Key Vault via PKCS#11). The private
+  key NEVER enters the AION process. **`Certificate.seal_with(signer, ...)`** and
+  **`Verifier.certify(..., signer=...)`** seal via any Signer — the in-process seed path is the dev fallback.
+
+### Added — key registry: rotation + revocation (`aion_nexus.verify.keyring`)
+- **`KeyRing`** — a publishable registry (no secrets; a transparency log) of `KeyRecord`s with `register` /
+  `rotate` (retire the active key, activate a successor) / `revoke` / `save` / `load`. **`verify_with_keyring`**
+  resolves a cert's `key_id` to its registered public key and enforces custody: a REVOKED key →
+  `authenticity="REVOKED-KEY"`, `trusted=False` (invalidating ONLY that key's certs); a retired key's existing
+  certs stay valid (rotation is not retroactive); an unknown `key_id` → `UNKNOWN-KEY`, untrusted.
+
+### Added — served revocation enforcement
+- `/verify` loads an optional registry from `AION_KEYRING`; when a certificate carries a `key_id` present in
+  the registry it is verified through the registry (rotation/revocation enforced), exposing `key_status` /
+  `key_note` on the response. Demo: `examples/15_key_custody.py`.
+
+### Tests
+- +9 (`tests/test_keyring.py` ×8 + 1 served revocation). Suite 457 → 466, all passing.
+
+## [2.19.0] — 2026-06-19 (Calibrated RUL with conformal intervals — the #1 customer gap, on-thesis)
+
+A market gap analysis confirmed RUL (remaining useful life in time-to-failure) as the top missing capability:
+every enterprise PdM platform ships it, AION had only a coarse positional degradation STAGE, and AION's own
+conformal machinery is exactly the tool to over-deliver with VALID coverage. This release fills it. No breaking
+changes.
+
+### Added — `aion_nexus.rul`
+- **`ConformalRUL`** — Conformalized Quantile Regression (Romano, Patterson & Candès, NeurIPS 2019): fit
+  gradient-boosted quantile regressors, then conformalize the interval on a held-out calibration set so that
+  `P(RUL_true in [lower, upper]) >= 1 - alpha`, distribution-free and finite-sample, under exchangeability.
+  `RULEstimate` carries point/lower/upper + a coverage caveat; `health_features` builds physics health
+  indicators (RMS, kurtosis, crest, spectral flatness, ...); `rul_labels_for_run` derives TRUE run-to-failure
+  labels `(n-1-i)*10s` — NOT the positional proxy (the §6.31 line). `save`/`load_rul` persist a fitted model.
+- Validated on REAL FEMTO run-to-failure (`scripts/eval_rul_femto.py`, `examples/14_calibrated_rul.py`):
+  in-distribution conformal coverage **0.889 ≈ 0.90** (MAE ~1.0 h, interval ~4.3 h); cross-bearing LOBO
+  **0.76 (under-covers)** — the honest signal that absolute time-to-failure does not transfer to a never-seen
+  bearing (it needs per-asset calibration). Results in `results/rul_femto_eval.json`.
+
+### Added — `/predict_rul` served endpoint
+- Returns a calibrated time-to-failure with a conformal interval, from a fitted ConformalRUL artifact the
+  deployer builds from run-to-failure data and configures via `AION_RUL_ARTIFACT` (loaded only from that
+  trusted path; 503 when unset). Distinct from `/predict_degradation` (a coarse stage).
+
+### Tests
+- +11 (`tests/test_rul.py` ×9 + 2 served). Suite 446 → 457, all passing.
+
+## [2.18.0] — 2026-06-19 (Conformal Risk Control — bound the catastrophic miss, not just miscoverage)
+
+Marginal conformal controls the miscoverage *rate*. Industrial PdM needs a bound on the ASYMMETRIC,
+safety-critical error: calling a degraded bearing healthy. This release adds risk-controlled prediction —
+a distribution-free, finite-sample guarantee on the expected false-healthy rate — and wires it into the
+served certificate. No breaking changes.
+
+### Added — `aion_nexus.verify.risk_control`
+- **`conformal_risk_control`** (Angelopoulos et al. 2022): picks one threshold on a calibration set such
+  that `E[false-healthy rate] <= alpha`, distribution-free and finite-sample. **`rcps_threshold`** (Bates
+  et al. 2021): the high-probability variant, `P(risk <= alpha) >= 1 - delta` via a Hoeffding UCB.
+- **`false_healthy_loss`**: the PdM loss — the bearing is degraded but the prediction set flags only
+  'healthy'. Monotone in the threshold, so risk control applies. `RiskControlResult` carries the calibrated
+  threshold, the realized calibration risk, and a plain-language guarantee string.
+- Validated on REAL FEMTO (`examples/13_risk_controlled_certificate.py`): the held-out false-healthy rate
+  is bounded at the target alpha, and the certificate that states the guarantee verifies offline. On a model
+  that under-flags, CRC tightens the miss rate materially (synthetic: 0.08 -> 0.04, `tests/test_risk_control`).
+
+### Added — risk control wired into the served certificate
+- `/predict_certified` now returns an additive `risk_control` object (method, alpha, threshold, the
+  risk-controlled set + names, `flags_degraded`, and the guarantee). The threshold is fit on the same
+  temperature-scaled calibration the conformal layer uses, inheriting the basis caveat. Configure the bound
+  with `AION_RISK_ALPHA` (default 0.05); set it to `off` to disable.
+
+### Tests
+- +10 (`tests/test_risk_control.py` ×8 + 2 served). Suite 436 → 446, all passing.
+
+## [2.17.0] — 2026-06-19 (Tested on REAL FEMTO; state-of-the-art post-hoc calibration + selective prediction)
+
+The served layer was tested on REAL FEMTO run-to-failure data (already on disk; no download). The honest
+result reframed the project and drove a frontier-grade upgrade. No breaking changes.
+
+### Real-data finding (workspace 6.31)
+- The published numbers REPRODUCE, but on the EASIER regimes: **0.884** on the stratified-temporal (leaky)
+  split the package itself flags, and **0.92** (`results/per_bearing_f1.json`) on the TRUNCATED challenge
+  `Test_set/Test_set` (regen matches 0.9218 exactly; the set stops near/before failure). On the COMPLETE
+  run-to-failure (`Full_Test_Set`) the v1 model scores macro-F1 **~0.70** and OVER-PREDICTS 'advanced' in the
+  failure phase. Positional labels are themselves a noisy proxy.
+- The VERIFIER, by contrast, holds up on real data — this is where the value is.
+
+### Added — `scripts/eval_real_femto.py` + `scripts/sota_real_femto.py`
+- **`eval_real_femto`**: runs the served pipeline on real FEMTO — model F1, in-distribution vs cross-bearing
+  conformal coverage, **selective certification (CERTIFIED 20% @ 0.86 accuracy vs 0.70 raw)**, a real signed
+  certificate verified offline. Writes `results/real_femto_eval.json`.
+- **`sota_real_femto`**: state-of-the-art post-hoc improvement + selective-prediction evaluation on real data:
+  **temperature scaling (ECE 0.217 → 0.032)**, logit adjustment (+0.017 macro-F1), AdaBN (+0.029), the
+  **risk-coverage curve + AURC** (accuracy @ 10% coverage 0.92 → 0.97), and **marginal vs class-conditional
+  conformal** per-class coverage (class-conditional fixes the under-covered 'medium' class). Writes
+  `results/sota_real_femto.json`.
+
+### Added — temperature scaling wired into the served certificate
+- **`fit_temperature` / `apply_temperature`** (`aion_nexus.serving_calibration`, Guo et al. 2017): the v1
+  model is over-confident on real data; the served verifier now fits T on its calibration set and re-tempers
+  BOTH calibration and serving probabilities consistently (score transform preserved → coverage intact, sets
+  honestly calibrated). The temperature factor is bound (tamper-evidently) into the certificate's
+  `coverage_guarantee`. `BASIS_REAL_INDIST = "real-indistribution"` added for real-but-not-leakage-clean
+  calibration (e.g. a globally-stratified checkpoint).
+
+### Tests
+- +3 (temperature fit/apply + served-cert temperature stamping). Suite 433 → 436, all passing.
+
+## [2.16.0] — 2026-06-19 (The verification layer as a SERVED product — not just a library)
+
+The defensible core (signed certificates + conformal + physics + EU AI Act evidence) existed as a library
+with strong unit tests, but reached a customer mostly as a Python import: the physics verifier had ZERO
+serving usages, the certified-serving conformal calibration was a synthetic PLACEHOLDER, and there was no
+compliance endpoint. This release wires the layer into the served product end to end, and makes the
+synthetic-vs-real calibration basis a first-class, certificate-bound, honestly-surfaced fact. No breaking
+changes (every new request/response field is additive and optional).
+
+### Added — real conformal-calibration artifacts (`aion_nexus.serving_calibration`)
+- **`save_calibration` / `load_calibration`** — a `.npz` calibration-artifact format the server loads. A
+  `real-holdout` artifact carries a baked-in, ENFORCED group-disjointness leakage check: writing one whose
+  calibration split leaks into training is REFUSED (`aion_nexus.evaluation.check_group_disjoint`).
+- **`coverage_guarantee_string`** — the exact basis string bound (tamper-evidently) into the certificate's
+  `coverage_guarantee` hash channel, so a `real-holdout` cert and a `synthetic-placeholder` cert hash
+  differently and an upgrade-by-edit breaks the signature.
+- **`scripts/build_calibration.py`** — CLI bridge: `--demo` (runnable, clearly-labelled synthetic) or
+  `--from-npz` (a deployer's held-out field data → leakage-checked `real-holdout` artifact).
+
+### Added — the served pipeline (`server/main.py`)
+- **`/predict_certified` now stamps `coverage_basis`** (`real-holdout` | `synthetic-placeholder`) into the
+  certificate AND surfaces it on the response, warning when the coverage number is a placeholder. The
+  verifier calibrates on a real artifact when `AION_CALIBRATION_NPZ` (or `checkpoints/calibration_v1.npz`)
+  is present, else the honest placeholder. `AION_REQUIRE_REAL_CALIBRATION=1` refuses to emit a
+  placeholder-coverage certificate (503).
+- **Physics second opinion composed into `/predict_certified`** — supply `rpm` + `bearing` (+ optional
+  `claimed_fault`) and the model-agnostic envelope/order verifier runs on the same window and composes
+  weakest-link with the conformal certificate: a CONTRADICT drops the system below CERTIFIED, catching a
+  confident-but-wrong model. WEAK/INDETERMINATE physics carries no information and never downgrades.
+- **`/evidence` and `/annex_iv`** — the EU AI Act / ISO evidence map and the 9-section Annex IV dossier,
+  served (previously library-only). Still contractually barred from emitting `compliant`/`conforme`.
+
+### Added — the showable artifact
+- **`examples/12_end_to_end_certified_pipeline.py`** — one reproducible chain from the REAL v1 checkpoint
+  to an offline-verifiable certificate: predict → conformal certify (basis-stamped) → physics CONTRADICT →
+  compose → verify with the public key → EU AI Act evidence + Annex IV → signed, offline-verifiable
+  leakage-free evaluation report. Hard-asserts every link.
+
+### Tests
+- **`tests/test_certified_pipeline.py`** (+13): the leakage gate, basis stamping/surfacing, the real-
+  artifact flip, strict mode, the physics-CONTRADICT composition, and the served compliance endpoints.
+  Suite 420 → 433, all passing.
+
 ## [2.15.0] — 2026-06-16 (Source-free test-time adaptation — closing the architecture-leap roadmap 5/5)
 
 The architecture-leap roadmap's #4, and the last of five. A model trained on one machine sees a shifted

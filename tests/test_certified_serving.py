@@ -78,6 +78,8 @@ def fresh_state(app, tmp_path, monkeypatch):
         getattr(app.state, "verifier", None),
         getattr(app.state, "cert_store", None),
         getattr(app.state, "expected_checkpoint_sha256", None),
+        getattr(app.state, "coverage_basis", None),
+        getattr(app.state, "calibration_meta", None),
     )
     engine = InferenceEngine(create_aion_nexus())
     app.state.engine = engine
@@ -85,9 +87,12 @@ def fresh_state(app, tmp_path, monkeypatch):
     app.state.verifier = _calibrated_verifier(engine)
     app.state.cert_store = CertificateStore(path=tmp_path / "certs.jsonl")
     app.state.expected_checkpoint_sha256 = None
+    app.state.coverage_basis = "synthetic-placeholder"
+    app.state.calibration_meta = None
     yield
     (app.state.engine, app.state.startup_error, app.state.verifier,
-     app.state.cert_store, app.state.expected_checkpoint_sha256) = saved
+     app.state.cert_store, app.state.expected_checkpoint_sha256,
+     app.state.coverage_basis, app.state.calibration_meta) = saved
 
 
 @pytest.fixture
@@ -115,7 +120,9 @@ class TestPredictCertified:
         body = r.json()
         cert = body["certificate"]
         assert cert["authentication"] == AUTH_ED25519
-        assert body["warning"] is None  # signed -> no unsigned warning
+        # signed -> no UNSIGNED warning (a coverage-basis note may still be present
+        # when the served verifier is on the synthetic placeholder, v2.16.0).
+        assert "not tamper-evident" not in (body["warning"] or "").lower()
         assert body["pubkey"] == ed25519_pubkey_from_seed(seed)
         # Offline auditor verdict: trusted ONLY against the expected issuer key.
         audit = verify_certificate(cert, expected_pubkey=body["pubkey"])

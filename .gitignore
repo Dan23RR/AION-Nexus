@@ -43,6 +43,14 @@ data/
 *.csv
 !examples/sample_signal.csv
 
+# Certificate audit stores + calibration artifacts (deployment-specific, may hold
+# real field data; built locally via scripts/build_calibration, never committed).
+certificates.jsonl
+*.certs.jsonl
+checkpoints/calibration_*.npz
+checkpoints/rul_*.joblib
+*.rul.joblib
+
 # Logs
 *.log
 logs/

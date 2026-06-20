@@ -359,6 +359,33 @@ class Certificate:
             self.authentication = AUTH_NONE
         return self
 
+    def seal_with(self, signer, *, ttl_seconds: int | None = None,
+                  key_id: str | None = None, now_iso: str | None = None) -> Certificate:
+        """Seal using a pluggable :class:`~aion_nexus.verify.signing.Signer`.
+
+        The custody path: ``signer.sign`` may forward the message to a KMS/HSM, so
+        the private key NEVER enters this process. The certificate records the
+        signer's ``scheme`` and embeds its ``public_material`` (the Ed25519 public
+        key, for offline third-party verification; ``None`` for HMAC). The validity
+        window / ``key_id`` are set and covered by the signature exactly as in
+        :meth:`seal`. Use with :class:`~aion_nexus.verify.signing.ExternalSigner`
+        for KMS/HSM custody, or :class:`LocalEd25519Signer` for the in-process key.
+        """
+        self.content_hash = self.compute_content_hash()
+        if ttl_seconds is not None:
+            if ttl_seconds <= 0:
+                raise ValueError("ttl_seconds must be a positive number of seconds")
+            now = _parse_iso(now_iso) if now_iso else datetime.now(timezone.utc)
+            self.not_before = _iso(now)
+            self.valid_until = _iso(now + timedelta(seconds=int(ttl_seconds)))
+            self.jti = uuid.uuid4().hex
+        if key_id is not None:
+            self.key_id = str(key_id)
+        self.signature = signer.sign(self.signing_payload())
+        self.authentication = signer.scheme
+        self.pubkey = signer.public_material
+        return self
+
     def as_dict(self) -> dict:
         return asdict(self)
 

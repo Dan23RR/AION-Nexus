@@ -75,7 +75,25 @@ from .conformal_advanced import (
     estimate_covariate_shift_weights,
     finite_sample_level,
 )
+from .keyring import (
+    KEY_ACTIVE,
+    KEY_RETIRED,
+    KEY_REVOKED,
+    KeyRecord,
+    KeyRing,
+    verify_with_keyring,
+)
+from .risk_control import (
+    DEGRADED_CLASSES,
+    HEALTHY_CLASSES,
+    RiskControlResult,
+    conformal_risk_control,
+    empirical_risk,
+    false_healthy_loss,
+    rcps_threshold,
+)
 from .signing import (
+    ExternalSigner,
     HmacSigner,
     LocalEd25519Signer,
     Signer,
@@ -103,6 +121,14 @@ __all__ = [
     "finite_sample_level",
     "estimate_covariate_shift_weights",
     "deploy_weighted_calibrator",
+    # risk control — bound a safety risk (false-healthy rate), not just coverage
+    "conformal_risk_control",
+    "rcps_threshold",
+    "RiskControlResult",
+    "false_healthy_loss",
+    "empirical_risk",
+    "HEALTHY_CLASSES",
+    "DEGRADED_CLASSES",
     "CertificateStore",
     "ChainResult",
     "verify_certificate",
@@ -120,10 +146,18 @@ __all__ = [
     "ed25519_verify",
     "hmac_sign",
     "hmac_verify",
-    # pluggable Signer interface (KMS/HSM-ready)
+    # pluggable Signer interface (KMS/HSM-ready) + key custody
     "Signer",
     "LocalEd25519Signer",
     "HmacSigner",
+    "ExternalSigner",
+    # key registry: rotation + revocation (transparency log)
+    "KeyRing",
+    "KeyRecord",
+    "verify_with_keyring",
+    "KEY_ACTIVE",
+    "KEY_RETIRED",
+    "KEY_REVOKED",
     # assurance lattice
     "assurance",
     "NONE",

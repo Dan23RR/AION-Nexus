@@ -118,6 +118,20 @@ class ErrorResponse(BaseModel):
 
 # ---- Certified serving (v2.6.0): /predict_certified and /verify --------------
 
+class BearingGeometrySchema(BaseModel):
+    """Rolling-element bearing kinematics for the optional physics second opinion.
+
+    Mirrors :class:`aion_nexus.physics.BearingGeometry`. ``ball_diameter`` and
+    ``pitch_diameter`` only ever enter as the ratio d/D, so any consistent length
+    unit is fine. ``contact_angle_deg`` is 0 for a deep-groove ball bearing.
+    """
+
+    n_rolling_elements: int = Field(..., ge=1)
+    ball_diameter: float = Field(..., gt=0.0)
+    pitch_diameter: float = Field(..., gt=0.0)
+    contact_angle_deg: float = Field(0.0, gt=-90.0, lt=90.0)
+
+
 class PredictCertifiedResponse(BaseModel):
     """``/predict_certified`` response: the prediction PLUS a sealed certificate.
 
@@ -127,11 +141,24 @@ class PredictCertifiedResponse(BaseModel):
     contract). ``pubkey`` is the Ed25519 PUBLIC key to verify against (``None`` for
     HMAC / NONE). ``verdict`` mirrors ``certificate["verdict"]`` for convenience.
 
-    HONESTY: ``warning`` is set (non-null) ONLY when the certificate is UNSIGNED
-    (``authentication = NONE``) because no signing key is configured — it states
-    plainly that the certificate is integrity-only and NOT tamper-evident. A
-    signed certificate carries ``warning = None``. The server NEVER silently
-    pretends an unsigned cert is authenticated.
+    HONESTY: ``warning`` is set (non-null) when the certificate is UNSIGNED
+    (``authentication = NONE``) OR when the served verifier is calibrated on the
+    synthetic placeholder (``coverage_basis = "synthetic-placeholder"``) — it
+    states plainly when the cert is not tamper-evident and/or the coverage number
+    is a placeholder. The server NEVER silently pretends.
+
+    Additive fields (v2.16.0, backward-compatible):
+
+    - ``coverage_basis`` — how the served conformal verifier was calibrated:
+      ``"real-holdout"`` (a leakage-checked real split) or
+      ``"synthetic-placeholder"`` (the runnable fallback). This basis is ALSO
+      bound (tamper-evidently) into the certificate's ``coverage_guarantee``.
+    - ``physics`` — the model-agnostic physics second opinion, present only when
+      the caller supplied ``rpm`` + ``bearing`` (``None`` otherwise).
+    - ``composed`` — the weakest-link composition of the conformal certificate
+      with a DEFINITE physics verdict (CONFIRM/CONTRADICT). Present only when the
+      physics check contributed a definite opinion; a CONTRADICT drops the system
+      verdict below CERTIFIED so a confident-but-wrong model is caught.
     """
 
     prediction: PredictResponse
@@ -139,6 +166,50 @@ class PredictCertifiedResponse(BaseModel):
     pubkey: str | None = None
     verdict: str
     warning: str | None = None
+    coverage_basis: str = "synthetic-placeholder"
+    physics: dict | None = None
+    composed: dict | None = None
+    risk_control: dict | None = None
+
+
+class PredictRULResponse(BaseModel):
+    """``/predict_rul`` response: a calibrated remaining-useful-life estimate.
+
+    ``point`` is the median time-to-failure; ``[lower, upper]`` is the conformal
+    interval at ``1 - alpha`` coverage (Conformalized Quantile Regression). The
+    coverage holds ONLY under exchangeability of the deployer's calibration data
+    and the serving asset — ``coverage_caveat`` states this; cross-bearing /
+    cross-machine deployment breaks it (the interval may then under-cover).
+    """
+
+    point: float
+    lower: float
+    upper: float
+    width: float
+    alpha: float
+    unit: str
+    method: str
+    coverage_caveat: str
+
+
+class EvidenceRequest(BaseModel):
+    """``/evidence`` body: a certificate dict to map onto an EU AI Act evidence map."""
+
+    certificate: dict
+
+
+class AnnexIVRequest(BaseModel):
+    """``/annex_iv`` body: optional model metadata + optional certificate.
+
+    ``model_metadata`` fills the deployer-owned Annex IV sections (architecture,
+    datasets, harmonised standards, ...); anything absent is reported provider-
+    owned rather than invented. ``markdown`` toggles a rendered card alongside the
+    structured dossier.
+    """
+
+    model_metadata: dict | None = None
+    certificate: dict | None = None
+    markdown: bool = False
 
 
 class VerifyRequest(BaseModel):
@@ -172,6 +243,11 @@ class VerifyResponse(BaseModel):
     detail: str
     expired: bool | None = None
     not_yet_valid: bool | None = None
+    # Key-custody fields (v2.20.0): present when a key registry (AION_KEYRING) is
+    # configured and the certificate carries a key_id — they expose rotation /
+    # revocation status. A revoked key makes authenticity "REVOKED-KEY", trusted=False.
+    key_status: str | None = None
+    key_note: str | None = None
 
 
 class LongSignalRequest(BaseModel):

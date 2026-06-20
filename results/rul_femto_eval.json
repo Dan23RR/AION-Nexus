@@ -1,0 +1,22 @@
+{
+  "dataset": "FEMTO Full_Test_Set (real run-to-failure)",
+  "n_windows": 1650,
+  "n_bearings": 11,
+  "alpha": 0.1,
+  "method": "Conformalized Quantile Regression (Romano et al. 2019)",
+  "in_distribution": {
+    "coverage": 0.8886,
+    "target": 0.9,
+    "mean_width": 15623.1605,
+    "median_width": 15859.8451,
+    "mae": 3588.1146,
+    "n": 413
+  },
+  "cross_bearing_lobo": {
+    "coverage": 0.7624,
+    "mean_width_h": 4.406,
+    "n_bearings": 11
+  },
+  "unit": "seconds",
+  "honesty_note": "RUL labels are the TRUE remaining life ((n_files-1-i)*10s) on complete run-to-failure bearings, NOT the positional stage proxy. In-distribution (same-bearing, exchangeable) the conformal interval holds its target coverage; cross-bearing it under-covers because absolute time-to-failure does not transfer to a never-seen bearing \u2014 the interval is honest about that (it would need per-asset calibration / online updating to recover)."
+}

@@ -1,0 +1,45 @@
+{
+  "dataset": "FEMTO Full_Test_Set (real, run-to-failure)",
+  "n_windows": 1320,
+  "n_bearings": 11,
+  "label_dist": {
+    "0": 264,
+    "1": 396,
+    "2": 396,
+    "3": 264
+  },
+  "model_f1_macro_real_allfiles": 0.7045,
+  "model_f1_published_stratified_leaky": 0.884,
+  "per_bearing_f1": {
+    "Bearing1_3": 0.6333,
+    "Bearing1_4": 0.6613,
+    "Bearing1_5": 0.8462,
+    "Bearing1_6": 0.8777,
+    "Bearing1_7": 0.5118,
+    "Bearing2_3": 0.5325,
+    "Bearing2_4": 0.7139,
+    "Bearing2_5": 0.8018,
+    "Bearing2_6": 0.736,
+    "Bearing2_7": 0.6953,
+    "Bearing3_3": 0.7129
+  },
+  "alpha": 0.1,
+  "raw_accuracy": 0.7,
+  "selective_certified_rate": 0.197,
+  "selective_certified_accuracy": 0.862,
+  "verdict_distribution": {
+    "REVIEW": 530,
+    "CERTIFIED": 130
+  },
+  "coverage_in_distribution": 0.941,
+  "set_size_in_distribution": 2.22,
+  "coverage_cross_bearing_lobo": 0.933,
+  "coverage_cross_bearing_folds": 11,
+  "physics_verdicts_advanced": {
+    "WEAK": 60
+  },
+  "physics_geometry": "ASSUMED NSK 6203 (FEMTO does not publish geometry)",
+  "certificate_basis": "real-indistribution",
+  "certificate_trusted_offline": true,
+  "honesty_note": "Two findings. (1) MODEL: the published numbers REPRODUCE, but on the EASIER regimes \u2014 0.884 on the stratified-temporal (leaky) split, and per_bearing_f1.json 0.92 on the TRUNCATED Test_set/Test_set (stops near/before failure; verified: regen reproduces 0.9218 exactly). On the COMPLETE run-to-failure (Full_Test_Set) used here the model scores ~0.70 and over-predicts 'advanced' in the failure phase. Positional labels are a noisy proxy. (2) VERIFIER: this is where the value is \u2014 conformal coverage HOLDS on real data by enlarging sets, so the system CERTIFIES only the confident-correct windows (higher selective accuracy) and sends the rest to REVIEW instead of shipping confident wrong answers. v1 trained globally-stratified -> no FEMTO bearing is leakage-clean vs training, so calibration is labelled real-indistribution, not real-holdout."
+}
