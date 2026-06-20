@@ -4,6 +4,52 @@ All notable changes to AION-NEXUS will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.1] — 2026-06-20 (Red-team fix batch — verifier-layer correctness hardening)
+
+Self-red-team audit (multi-agent) surfaced seven real defects in the verification layer. All are now
+fixed and pinned by regression tests (`tests/test_v2_21_1_fixes.py`). No public API breaks.
+
+### Fixed
+- **Few-shot encoder BatchNorm drift** (`few_shot.py`): `adapt()` called `model.train()`, which let the
+  FROZEN encoder's BatchNorm running stats (and dropout) update on the few-shot batch — a silent leak of the
+  target batch into the "frozen" encoder. Now `eval()` the whole model and switch ONLY the trainable head
+  submodules to `train()`; gradients still flow to the head. (Closes B1; touches the Product-2C few-shot path.)
+- **Key-revocation fail-open at `/verify`** (`server/main.py`): the keyring branch was gated on the cert
+  carrying a `key_id`; with `AION_CERT_KEY_ID` unset (default), certs had `key_id=None` and bypassed the
+  registry, so a revoked key could keep producing trusted certs. Now a loaded keyring enforces fail-CLOSED for
+  EVERY cert (missing key_id → UNKNOWN-KEY → untrusted); startup warns if a keyring is loaded without
+  `AION_CERT_KEY_ID`. (Closes B2.)
+- **Entropy floor was length-only** (`verify/signing.py`): a 32-byte constant (`b"a"*32`) or a repeated word
+  cleared the floor yet is brute-forceable. `assert_strong_seed` / the `strict=True` path now also require a
+  minimum distinct-byte count and Shannon entropy. `generate_seed()` output still passes. (Closes B3.)
+- **Risk-control overclaim when the bound is unreachable** (`verify/risk_control.py`): if no lambda met the
+  finite-sample-adjusted target (e.g. small n), the result still asserted `E[...] <= alpha`. It now reports
+  `bound_achieved=False` and an honest "target NOT achievable" guarantee string. (Closes B5.)
+- **`verify_certificate` did not re-check verdict↔set** (`verify/certificate.py`): a CERTIFIED verdict forged
+  onto a non-singleton conformal set (or a label outside its own set) verified as `trusted` if signed. The
+  rule (CERTIFIED ⟺ singleton holding the label; REVIEW ⟺ size≥2) is now re-checkable offline:
+  `verdict_consistent=False` forces `trusted=False`. (Closes B6.)
+- **KeyRing round-trip dropped retired-key metadata** (`verify/keyring.py`): `from_dict` only restored full
+  records for REVOKED keys; a retired key lost its `reason`/`not_after`, breaking the transparency log. Now
+  every record is reconstructed faithfully. (Closes B7.)
+
+### Investigated, not changed (honest negative result)
+- **APS calibration/prediction consistency (audit item B4): ATTEMPTED then REVERTED.** The calibration score is
+  randomized while the predictor is deterministic. Making both deterministic (the "consistent" fix) is
+  mathematically defensible but empirically collapses the CERTIFIED rate — confident inputs that used to yield
+  a singleton set instead get the full set (it over-covers hard), gutting the selective-certification value.
+  The randomized-predict alternative would restore tight sets but breaks certificate determinism. The current
+  randomized-calibration APS is therefore retained on purpose; it is the configuration the system is tuned
+  around and it passes all coverage tests. Documented rather than shipped as a regression.
+
+### Docs
+- README: removed the contradictory "reproducible" claim on MFPT 0.615/0.672 (NOT reproducible from the
+  shipped loader; flagged literature-reported + artifact-on-request) and noted MFPT's CC BY-NC-SA 4.0
+  non-commercial license; version badge → 2.21.1.
+- `docs/REAL_DATA_EVALUATION.md`: the CERTIFIED number now travels with two mandatory caveats — it covers a
+  ~20% SLICE of windows (honest triage, not "certifies the bearings"), and the OPEN cheatbench residual is
+  concrete (~14% of CERTIFIED windows are wrong; conformal bounds the rate, not per-instance correctness).
+
 ## [2.21.0] — 2026-06-19 (Continuous monitoring — point-in-time certs become a rolling SLO + drift)
 
 The market gap analysis named the existential architectural mismatch: the AI-assurance category watches

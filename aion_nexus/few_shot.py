@@ -76,6 +76,7 @@ class FewShotAdapter:
                 f"Unknown architecture_version {self.architecture_version!r}; "
                 f"expected one of {sorted(_HEAD_PREFIXES)}"
             )
+        self._head_prefixes = prefixes
         for name, p in self.model.named_parameters():
             p.requires_grad = any(name.startswith(pre) for pre in prefixes)
         n_train = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -130,7 +131,18 @@ class FewShotAdapter:
 
         params = [p for p in self.model.parameters() if p.requires_grad]
         optimizer = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
-        self.model.train()
+        # The encoder is FROZEN, so its BatchNorm running stats and dropout must NOT
+        # update on the few-shot batch: calling model.train() would silently adapt the
+        # "frozen" encoder's BN running_mean/var to the target batch (a leak of target
+        # data into the encoder, and a known F1 regressor — see MODEL_CARD AdaBN note).
+        # Put the whole model in eval(), then switch ONLY the trainable head submodules
+        # back to train(). Gradients flow regardless of train/eval mode, so the head
+        # still learns; only BN/dropout behaviour is governed by the mode.
+        self.model.eval()
+        head_roots = tuple(pre.rstrip(".") for pre in self._head_prefixes)
+        for name, module in self.model.named_modules():
+            if any(name == r or name.startswith(r + ".") for r in head_roots):
+                module.train()
 
         epoch_losses = []
         for epoch in range(epochs):

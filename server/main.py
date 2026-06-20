@@ -492,6 +492,15 @@ def _load_keyring(app: FastAPI) -> None:
         from aion_nexus.verify import KeyRing
         app.state.keyring = KeyRing.load(path.strip())
         _logger.info("Loaded key registry from %s", path)
+        # With a registry deployed, /verify is fail-CLOSED: a cert WITHOUT a key_id
+        # resolves to UNKNOWN-KEY (untrusted). So the minting side MUST stamp one, or
+        # every served certificate would be untrusted by its own auditor.
+        if not (os.environ.get(CERT_KEY_ID_ENV) or "").strip():
+            _logger.warning(
+                "%s is set but %s is NOT: served certificates will carry no key_id "
+                "and /verify (fail-closed under a keyring) will mark them UNKNOWN-KEY "
+                "/ untrusted. Set %s to the active key's id.",
+                KEYRING_ARTIFACT_ENV, CERT_KEY_ID_ENV, CERT_KEY_ID_ENV)
     except Exception:
         _logger.exception("Failed to load key registry; revocation enforcement off")
         app.state.keyring = None
@@ -1078,12 +1087,16 @@ def verify(body: VerifyRequest) -> VerifyResponse:
     """
     from aion_nexus.verify import verify_certificate
     keyring = getattr(app.state, "keyring", None)
-    cert_key_id = body.certificate.get("key_id") if isinstance(body.certificate, dict) else None
     try:
-        if keyring is not None and cert_key_id:
-            # Enforce rotation + revocation: resolve the key_id against the registry
-            # (a revoked key -> trusted=False, REVOKED-KEY), ignoring a caller-supplied
-            # expected_pubkey in favour of the registered one.
+        if keyring is not None:
+            # A key registry is deployed -> ENFORCE rotation + revocation for EVERY
+            # certificate, fail-CLOSED. Routing through verify_with_keyring regardless
+            # of whether the cert carries a key_id is the fix for the prior fail-OPEN
+            # gap: a cert WITHOUT a key_id can no longer slip past the registry and be
+            # trusted via its embedded pubkey — verify_with_keyring marks a missing /
+            # unknown key_id as UNKNOWN-KEY (trusted=False), and a revoked key as
+            # REVOKED-KEY. When a keyring is loaded the deployer MUST mint with
+            # AION_CERT_KEY_ID set (_load_keyring warns if it is not).
             from aion_nexus.verify import verify_with_keyring
             res = verify_with_keyring(body.certificate, keyring, now_iso=body.now_iso)
         else:

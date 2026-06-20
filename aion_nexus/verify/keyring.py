@@ -18,7 +18,7 @@ ONLY its own certificates, not the whole issuer). It is a transparency log: the
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
 from .certificate import verify_certificate
@@ -103,12 +103,20 @@ class KeyRing:
 
     @classmethod
     def from_dict(cls, data: dict) -> KeyRing:
+        """Reconstruct a ring FAITHFULLY from its ``to_dict()`` form.
+
+        Restores EVERY persisted field (status, created, ``not_after``, ``reason``)
+        for ALL keys — not just revoked ones — so a retired key keeps the
+        why/when of its retirement. A transparency log that dropped those on
+        save/load would not be auditable, which is the whole point of the registry.
+        """
         ring = cls()
+        valid = {f.name for f in fields(KeyRecord)}
         for k in data.get("keys", []):
-            ring.register(k["key_id"], k["public_key"],
-                          status=k.get("status", KEY_ACTIVE), created=k.get("created"))
-            if k.get("status") == KEY_REVOKED:
-                ring._keys[k["key_id"]] = KeyRecord(**{**k})
+            kid = k["key_id"]
+            if kid not in ring._keys:
+                ring._order.append(kid)
+            ring._keys[kid] = KeyRecord(**{n: v for n, v in k.items() if n in valid})
         return ring
 
     def save(self, path) -> None:

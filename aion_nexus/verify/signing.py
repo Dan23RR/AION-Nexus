@@ -80,13 +80,24 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import os
+from collections import Counter
 from typing import Protocol, runtime_checkable
 
 # A raw Ed25519 private key is 32 bytes; we require at least that much seed
 # material so the derived key carries full entropy rather than being a stretch of
 # a guessable secret. ``generate_seed()`` returns exactly this many bytes (hex).
 MIN_SEED_BYTES = 32
+
+# Length alone is a weak proxy for entropy: a 32-byte constant (b"a"*32) or a
+# repeated word clears the byte floor yet is trivially brute-forceable. The strict
+# path therefore ALSO requires a minimum byte-alphabet size and Shannon entropy.
+# Thresholds chosen so a full-entropy seed (os.urandom(32) raw, or its 64-char hex
+# from generate_seed()) clears them comfortably, while b"a"*32, b"ab"*16 and a
+# repeated passphrase do not.
+MIN_SEED_DISTINCT = 8        # distinct byte values required
+MIN_SEED_ENTROPY_BITS = 2.5  # Shannon bits per byte required
 
 # scrypt cost parameters for the OPTIONAL kdf=True path. These are interactive-
 # login-grade (RFC 7914 suggests n=2**14 for interactive use); they make each
@@ -107,12 +118,12 @@ _CRYPTOGRAPHY_HINT = (
 )
 
 _WEAK_SEED_HINT = (
-    "weak signing seed: %d byte(s) < the %d-byte entropy floor. A short seed IS "
-    "brute-forceable and a SHA-256 fold does NOT add entropy, so the derived "
-    "Ed25519 private key would be guessable (a red team recovered '1234' in "
-    "<10k tries). Use a full-entropy seed from generate_seed() (os.urandom(32) "
-    "hex), or pass kdf=True to stretch a memorable seed with scrypt (slows brute "
-    "force but CANNOT create entropy the seed lacks)."
+    "weak signing seed: %s. A guessable seed IS brute-forceable and a SHA-256 "
+    "fold does NOT add entropy, so the derived Ed25519 private key would be "
+    "guessable (a red team recovered '1234' in <10k tries). Use a full-entropy "
+    "seed from generate_seed() (os.urandom(32) hex), or pass kdf=True to stretch "
+    "a memorable seed with scrypt (slows brute force but CANNOT create entropy "
+    "the seed lacks)."
 )
 
 
@@ -132,18 +143,40 @@ def _seed_bytes(seed: bytes | str) -> bytes:
     return seed.encode("utf-8") if isinstance(seed, str) else bytes(seed)
 
 
+def _weak_seed_reason(raw: bytes) -> str | None:
+    """Return WHY ``raw`` is too weak to derive a key, or ``None`` if it is strong.
+
+    Catches BOTH failure modes: (1) below the length floor, and (2) long but
+    low-entropy (a constant, a repeated word/PIN) — which a length-only check
+    misses even though such a seed is brute-forceable.
+    """
+    if len(raw) < MIN_SEED_BYTES:
+        return f"{len(raw)} byte(s) < the {MIN_SEED_BYTES}-byte entropy floor"
+    n = len(raw)
+    distinct = len(set(raw))
+    bits = -sum((c / n) * math.log2(c / n) for c in Counter(raw).values())
+    if distinct < MIN_SEED_DISTINCT or bits < MIN_SEED_ENTROPY_BITS:
+        return (f"below the entropy floor: low entropy ({distinct} distinct byte "
+                f"value(s), {bits:.2f} bits/byte < the {MIN_SEED_ENTROPY_BITS} "
+                f"floor) — a long but guessable seed (constant, repeated word, "
+                f"PIN) is still brute-forceable")
+    return None
+
+
 def assert_strong_seed(seed: bytes | str) -> None:
-    """Raise ``ValueError`` if ``seed`` is below the :data:`MIN_SEED_BYTES` floor.
+    """Raise ``ValueError`` unless ``seed`` clears the entropy floor.
 
     The explicit gate behind ``strict=True``. Call it at any minting surface that
     accepts an untrusted or operator-chosen seed to fail loudly on a guessable
-    secret BEFORE a key is derived from it. A seed that clears the floor passes
-    silently. This checks LENGTH (a proxy for entropy), not true randomness — a
-    32-byte constant passes; use :func:`generate_seed` for real entropy.
+    secret BEFORE a key is derived from it. Checks BOTH the length floor
+    (:data:`MIN_SEED_BYTES`) AND the entropy floor (:data:`MIN_SEED_DISTINCT`
+    distinct bytes, :data:`MIN_SEED_ENTROPY_BITS` Shannon bits/byte) — so a
+    32-byte constant or a repeated word is REJECTED, not just a short seed. A
+    full-entropy seed from :func:`generate_seed` passes silently.
     """
-    raw = _seed_bytes(seed)
-    if len(raw) < MIN_SEED_BYTES:
-        raise ValueError(_WEAK_SEED_HINT % (len(raw), MIN_SEED_BYTES))
+    reason = _weak_seed_reason(_seed_bytes(seed))
+    if reason is not None:
+        raise ValueError(_WEAK_SEED_HINT % reason)
 
 
 def _require_cryptography():
@@ -168,8 +201,10 @@ def _derive_raw32(seed: bytes | str, *, kdf: bool, strict: bool) -> bytes:
       domain-separation salt — accepts a memorable seed, raises the per-guess
       cost of brute force, but does NOT add entropy the seed lacks. (``kdf`` wins
       over ``strict``: stretching is the deliberate way to use a short seed.)
-    - else ``strict=True``: REQUIRE ``len(seed) >= MIN_SEED_BYTES`` (reject a
-      guessable seed up front), then fold with one SHA-256 pass.
+    - else ``strict=True``: REQUIRE the seed to clear the entropy floor
+      (:func:`_weak_seed_reason`: length AND distinct-byte/Shannon-entropy — so a
+      32-byte constant or a repeated word is rejected, not just a short seed),
+      then fold with one SHA-256 pass.
     - else (default ``strict=False, kdf=False``): the LEGACY behaviour — fold with
       SHA-256 and do NOT raise. Kept for byte-compatibility with existing callers;
       the floor is opt-in via ``strict`` / :func:`generate_seed`.
@@ -183,8 +218,10 @@ def _derive_raw32(seed: bytes | str, *, kdf: bool, strict: bool) -> bytes:
         # derivation stays deterministic and reproducible across processes.
         return hashlib.scrypt(
             raw, salt=_KDF_SALT, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=32)
-    if strict and len(raw) < MIN_SEED_BYTES:
-        raise ValueError(_WEAK_SEED_HINT % (len(raw), MIN_SEED_BYTES))
+    if strict:
+        reason = _weak_seed_reason(raw)
+        if reason is not None:
+            raise ValueError(_WEAK_SEED_HINT % reason)
     return hashlib.sha256(raw).digest()  # seed -> 32 deterministic bytes
 
 

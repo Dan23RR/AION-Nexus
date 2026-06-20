@@ -39,6 +39,18 @@ The verifier enlarges prediction sets when the model is uncertain, so most windo
 go to REVIEW and only the confident-correct ones are CERTIFIED. That selective
 behaviour — not the raw accuracy — is the product.
 
+> **Read the certified number honestly (two caveats that must travel with it).**
+> 1. **It covers a SLICE of the volume, not the bearings.** "CERTIFIED @ 0.86" applies
+>    to the ~1-in-5 windows the verifier is willing to stand behind; the other ~80% are
+>    routed to human review. The product is **honest triage** ("here is the fraction I can
+>    certify, and I refuse the rest"), not "the system certifies the bearings". Always quote
+>    the *coverage fraction* alongside the accuracy.
+> 2. **The OPEN cheatbench residual has a real magnitude.** Conformal coverage is MARGINAL,
+>    not per-instance (`cheatbench` channel `confident_singleton_unverified`, declared OPEN).
+>    On real FEMTO that residual is concrete: among CERTIFIED windows, ~**1 − 0.86 ≈ 14%**
+>    are wrong — a confident, signed-and-trusted certificate can still carry an incorrect
+>    label. The certificate bounds the *rate*, never the correctness of a single call.
+
 ## 3. State-of-the-art post-hoc upgrades (no retraining)
 
 `sota_real_femto.py` fits everything on a calibration split and reports on a

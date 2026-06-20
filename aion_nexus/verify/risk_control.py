@@ -43,6 +43,7 @@ class RiskControlResult:
     n_calibration: int
     loss_name: str
     delta: float | None = None   # RCPS confidence parameter (None for CRC)
+    bound_achieved: bool = True  # False = no lambda met the target; using safest set
     guarantee: str = ""          # human-readable statement of what is bounded
     coverage_valid_under: str = (
         "exchangeability of calibration and serving data; cross-bearing / "
@@ -122,15 +123,27 @@ def conformal_risk_control(probs: np.ndarray, labels: np.ndarray, *,
     ok = np.where(adjusted <= alpha)[0]
     # The full set (lambda = max) drives the loss to 0, so a solution exists once
     # n is large enough (B/(n+1) <= alpha). If none qualifies, fall back to the
-    # largest lambda (the safest set) and report the residual risk honestly.
-    idx = int(ok[0]) if ok.size else int(len(lambdas) - 1)
+    # largest lambda (the safest set) and report the residual risk honestly — and,
+    # crucially, do NOT keep claiming the bound: with no lambda meeting the target
+    # the guarantee is NOT in force (typically n < B/alpha), so the string must say
+    # so rather than asserting "E[...] <= alpha" unconditionally.
+    achieved = bool(ok.size)
+    idx = int(ok[0]) if achieved else int(len(lambdas) - 1)
     lam = float(lambdas[idx])
+    if achieved:
+        guarantee = (f"E[{loss_name}] <= {alpha:.3f} (conformal risk control, "
+                     f"distribution-free, finite-sample) — the expected rate of "
+                     f"failing to flag a degraded bearing is bounded by {alpha:.1%}")
+    else:
+        guarantee = (f"target E[{loss_name}] <= {alpha:.3f} NOT achievable at "
+                     f"n={n} (no lambda meets the finite-sample-adjusted bound; "
+                     f"likely n < B/alpha): using the safest set (lambda={lam:.3f}); "
+                     f"the {alpha:.1%} bound is NOT in force — calibrated residual "
+                     f"risk {float(rc[idx]):.3f}. Collect more calibration data.")
     return RiskControlResult(
-        lambda_hat=lam, alpha=float(alpha), method="CRC",
+        lambda_hat=lam, alpha=float(alpha), method="CRC", bound_achieved=achieved,
         calibrated_risk=float(rc[idx]), n_calibration=n, loss_name=loss_name,
-        guarantee=(f"E[{loss_name}] <= {alpha:.3f} (conformal risk control, "
-                   f"distribution-free, finite-sample) — the expected rate of "
-                   f"failing to flag a degraded bearing is bounded by {alpha:.1%}"))
+        guarantee=guarantee)
 
 
 def rcps_threshold(probs: np.ndarray, labels: np.ndarray, *,
@@ -155,11 +168,21 @@ def rcps_threshold(probs: np.ndarray, labels: np.ndarray, *,
     rc = _risk_curve(probs, labels, lambdas, loss)
     ucb = rc + np.sqrt(np.log(1.0 / delta) / (2.0 * n))
     ok = np.where(ucb <= alpha)[0]
-    idx = int(ok[0]) if ok.size else int(len(lambdas) - 1)
+    achieved = bool(ok.size)
+    idx = int(ok[0]) if achieved else int(len(lambdas) - 1)
     lam = float(lambdas[idx])
+    if achieved:
+        guarantee = (f"P({loss_name} <= {alpha:.3f}) >= {1 - delta:.2f} (RCPS, "
+                     f"Hoeffding) — with probability {1 - delta:.0%} the rate of "
+                     f"failing to flag a degraded bearing is at most {alpha:.1%}")
+    else:
+        guarantee = (f"target P({loss_name} <= {alpha:.3f}) >= {1 - delta:.2f} NOT "
+                     f"achievable at n={n} (no lambda's Hoeffding UCB meets alpha): "
+                     f"using the safest set (lambda={lam:.3f}); the bound is NOT in "
+                     f"force — calibrated residual risk {float(rc[idx]):.3f}. "
+                     f"Collect more calibration data.")
     return RiskControlResult(
         lambda_hat=lam, alpha=float(alpha), method="RCPS", delta=float(delta),
+        bound_achieved=achieved,
         calibrated_risk=float(rc[idx]), n_calibration=n, loss_name=loss_name,
-        guarantee=(f"P({loss_name} <= {alpha:.3f}) >= {1 - delta:.2f} (RCPS, "
-                   f"Hoeffding) — with probability {1 - delta:.0%} the rate of "
-                   f"failing to flag a degraded bearing is at most {alpha:.1%}"))
+        guarantee=guarantee)

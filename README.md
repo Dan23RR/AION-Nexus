@@ -9,13 +9,13 @@
 > "severity class", read it through this caveat. We previously labelled this "fault diagnosis";
 > that name is a misnomer and is being corrected.
 
-A multi-scale temporal deep-learning system that estimates bearing degradation stage from 2-channel accelerometer data. Honest, reproducible cross-*dataset* numbers: F1 0.615 zero-shot and 0.672 few-shot (10 samples/class) on MFPT — never seen in training. Cross-*bearing* generalization without adaptation collapses below 0.4 (LOBO); we measure and publish this rather than hide it. See [MODEL_CARD.md](MODEL_CARD.md) and [PERFORMANCE_BENCHMARKS.md](PERFORMANCE_BENCHMARKS.md).
+A multi-scale temporal deep-learning system that estimates bearing degradation stage from 2-channel accelerometer data. Cross-*dataset* numbers on MFPT (never seen in training): F1 **0.672** few-shot (10 samples/class) and **0.615** zero-shot — best-reported in the literature for this task, **but NOT reproducible from this repo as shipped**: the current loader yields 0.5546 on the zero-shot path, and the few-shot sensitivity artifact lives in an external source repo. Treat them as *logged / literature-reported, artifact on request* — not as clone-and-verify numbers. MFPT is licensed **CC BY-NC-SA 4.0 (non-commercial)**, so the benchmark figures are research references, not a commercial performance claim. Cross-*bearing* generalization without adaptation collapses below 0.4 (LOBO); we measure and publish this rather than hide it. See [MODEL_CARD.md](MODEL_CARD.md), [PERFORMANCE_BENCHMARKS.md](PERFORMANCE_BENCHMARKS.md) and [docs/reproduce.md](docs/reproduce.md).
 
 > **Where we publish our failures.** Retracted / corrected claims live in
 > [RETRACTIONS.md](RETRACTIONS.md). Exact reproduction steps (and the known non-reproducible
 > numbers) live in [docs/reproduce.md](docs/reproduce.md). Read both before quoting any number.
 
-[![Status](https://img.shields.io/badge/status-production-green)]() [![Version](https://img.shields.io/badge/version-2.2.0-blue)]() [![Python](https://img.shields.io/badge/python-3.10+-blue)]() [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange)]() [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
+[![Status](https://img.shields.io/badge/status-production-green)]() [![Version](https://img.shields.io/badge/version-2.21.1-blue)]() [![Python](https://img.shields.io/badge/python-3.10+-blue)]() [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange)]() [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
 
 ---
 

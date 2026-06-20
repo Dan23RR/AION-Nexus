@@ -596,22 +596,58 @@ def verify_certificate(cert, key: str | bytes | None = None, *,
     return _apply_window(res, d, expired, not_yet_valid, in_window, window_note)
 
 
+def _verdict_set_consistent(d: dict) -> tuple[bool, str]:
+    """Check the verdict agrees with the conformal set it is supposed to summarise.
+
+    The minting rule (``Verifier.certify``) is: CERTIFIED iff the conformal set is
+    a SINGLETON holding the predicted label; REVIEW iff the set is AMBIGUOUS
+    (size >= 2). That rule lives at the issuer; a third party re-verifying offline
+    could not previously catch a certificate whose ``verdict`` was edited to
+    disagree with its ``conformal_set`` (e.g. CERTIFIED stamped on ``{0,2,3}``).
+    This makes the rule RE-CHECKABLE. ABSTAIN is intentionally not constrained
+    here (it depends on a confidence threshold not carried in the certificate).
+    """
+    verdict = str(d.get("verdict", ""))
+    try:
+        cset = [int(c) for c in d.get("conformal_set", [])]
+        label = int(d["predicted_label"])
+    except (TypeError, ValueError, KeyError):
+        return False, "verdict/set malformed -> cannot confirm consistency"
+    if verdict == VERDICT_CERTIFIED and (len(cset) != 1 or label not in cset):
+        return False, ("verdict CERTIFIED but conformal_set is not a singleton "
+                       "containing the predicted label -> verdict/set inconsistent")
+    if verdict == VERDICT_REVIEW and len(cset) < 2:
+        return False, ("verdict REVIEW but conformal_set is not ambiguous "
+                       "(size < 2) -> verdict/set inconsistent")
+    return True, ""
+
+
 def _apply_window(res: dict, d: dict, expired: bool, not_yet_valid: bool,
                   in_window: bool, window_note: str) -> dict:
-    """Fold the validity-window verdict into a base authenticity result.
+    """Fold verdict/set consistency AND the validity-window verdict into a result.
 
-    A certificate with no window is unchanged. Otherwise ``expired`` /
-    ``not_yet_valid`` are surfaced as explicit flags and FORCE ``trusted=False``
-    (a signature can be perfectly valid yet the cert out of its allowed window —
-    the anti-replay guard). The note is appended to ``detail`` for auditability.
+    Every verification path funnels through here, so this is where two re-checkable
+    invariants are enforced on top of the signature:
+
+    - **verdict <-> set consistency**: a forged CERTIFIED verdict on a non-singleton
+      set (or a predicted label outside its own set) sets ``verdict_consistent=False``
+      and FORCES ``trusted=False`` — even with a valid signature, the record is
+      internally contradictory and must not be acted on.
+    - **validity window** (anti-replay): ``expired`` / ``not_yet_valid`` are surfaced
+      and FORCE ``trusted=False`` (a signature can be valid yet the cert out of its
+      allowed window). A timeless cert skips the window check.
     """
-    if not d.get("not_before") and not d.get("valid_until"):
-        return res  # timeless certificate — nothing to add
-    res["expired"] = expired
-    res["not_yet_valid"] = not_yet_valid
-    if not in_window:
+    vc_ok, vc_note = _verdict_set_consistent(d)
+    res["verdict_consistent"] = vc_ok
+    if not vc_ok:
         res["trusted"] = False
-    res["detail"] = f"{res['detail']}; {window_note}"
+        res["detail"] = f"{res['detail']}; {vc_note}"
+    if d.get("not_before") or d.get("valid_until"):
+        res["expired"] = expired
+        res["not_yet_valid"] = not_yet_valid
+        if not in_window:
+            res["trusted"] = False
+        res["detail"] = f"{res['detail']}; {window_note}"
     return res
 
 
